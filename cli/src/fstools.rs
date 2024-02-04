@@ -43,7 +43,6 @@ pub async fn cp_folder(src: PathBuf, dest: PathBuf) -> Result<(), Error> {
                 ),
             )
             .await;
-        TRACKER.progress(sequence, None).await;
     }
     TRACKER.success(sequence, &msg).await;
     Ok(())

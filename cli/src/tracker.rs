@@ -1,11 +1,13 @@
 use async_channel::{bounded, unbounded, Receiver, Sender};
+use async_io::Timer;
 use async_std::task;
 use console::style;
+use futures::{select, StreamExt};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::{
     collections::HashMap,
     io::{Error, ErrorKind},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 const TIME_BAR_WIDTH: usize = 5;
@@ -32,7 +34,6 @@ impl std::fmt::Display for OperationResult {
 #[derive(Clone, Debug)]
 pub enum Tick {
     Started(String, Option<u64>, Sender<usize>),
-    Progress(usize, Option<u64>),
     Message(usize, String),
     Finished(usize, OperationResult, String),
     #[allow(dead_code)]
@@ -76,94 +77,101 @@ impl Tracker {
         let spinner_style = ProgressStyle::with_template("{spinner} {prefix:.bold.dim} {wide_msg}")
             .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?
             .tick_chars("▂▃▅▆▇▆▅▃▂ ");
-        async move {
-            let mut sequence: usize = 0;
-            let mut max_time_len = 0;
-            let max = u64::MAX;
-            let mut bars: HashMap<usize, JobBarState> = HashMap::new();
-            let mp = MultiProgress::new();
-            let start_time = Instant::now();
-            while let Ok(tick) = rx.recv().await {
-                match tick {
-                    Tick::Started(job, len, tx_response) => {
-                        sequence += 1;
-                        let bar = mp.add(ProgressBar::new(len.unwrap_or(max)));
-                        bar.set_style(spinner_style.clone());
-                        let job_bar = JobBarState::start_job(job, bar);
-                        bars.insert(sequence, job_bar);
-                        Self::refresh_all_bars(&mut bars, sequence, max_time_len, None);
-                        if let Err(e) = tx_response.send(sequence).await {
-                            let _ = mp.println(format!("Fail to send response: {e}"));
-                        }
-                    }
-                    Tick::Message(sequence, log) => {
-                        if let Some(job_bar) = bars.get(&sequence) {
-                            job_bar.bar.set_message(log);
-                        }
-                    }
-                    Tick::Progress(sequence, pos) => {
-                        if let Some(job_bar) = bars.get(&sequence) {
-                            if let Some(pos) = pos {
-                                job_bar.bar.set_position(pos);
-                            } else {
-                                job_bar.bar.inc(1);
+        let mut sequence: usize = 0;
+        let mut max_time_len = 0;
+        let max = u64::MAX;
+        let mut bars: HashMap<usize, JobBarState> = HashMap::new();
+        let mp = MultiProgress::new();
+        let start_time = Instant::now();
+
+        // All futures in select! macro must be fused
+        let mut rx = rx.fuse();
+
+        let mut ticker = Timer::interval(Duration::from_millis(200)).fuse();
+        loop {
+            select! {
+            _ = ticker.next() =>  {
+                    bars
+                    .iter_mut()
+                    .filter(|(_, job_bar)| !job_bar.bar.is_finished())
+                    .for_each(|(_, job_bar)| {
+                        job_bar.bar.tick();
+                    });
+                }
+            tick = rx.next() => {
+                if let Some(tick) = tick {
+                    match tick {
+                        Tick::Started(job, len, tx_response) => {
+                            sequence += 1;
+                            let bar = mp.add(ProgressBar::new(len.unwrap_or(max)));
+                            bar.set_style(spinner_style.clone());
+                            let job_bar = JobBarState::start_job(job, bar);
+                            bars.insert(sequence, job_bar);
+                            Self::refresh_all_bars(&mut bars, sequence, max_time_len, None);
+                            if let Err(e) = tx_response.send(sequence).await {
+                                let _ = mp.println(format!("Fail to send response: {e}"));
                             }
                         }
-                    }
-                    Tick::Finished(seq, result, msg) => {
-                        if let Some(job_bar) = bars.get_mut(&seq) {
-                            let sequence_txt = sequence.to_string();
-                            // It doesn't make sense to show that a job is done in 0 seconds
-                            let time = job_bar.start_time.elapsed().as_secs().max(1);
-
-                            max_time_len = max_time_len.max(Self::count_digits(time));
-
-                            let seq_width = sequence_txt.len();
-                            let job = job_bar.name.as_str();
-                            job_bar.bar.set_prefix(format!(
-                                "[{seq:seq_width$}/{sequence_txt}][{result}][{time:max_time_len$}s][{job}].",
-                            ));
-                            job_bar.bar.finish_with_message(msg);
-                            job_bar.result.replace((result, time));
-
-                            Self::refresh_all_bars(&mut bars, sequence, max_time_len, None);
+                        Tick::Message(sequence, log) => {
+                            if let Some(job_bar) = bars.get(&sequence) {
+                                job_bar.bar.set_message(log);
+                            }
                         }
-                    }
-                    Tick::Print(msg) => {
-                        let _ = mp.println(msg);
-                    }
-                    Tick::Shutdown(tx_response) => {
-                        bars.iter_mut().for_each(|(_, job_bar)| {
-                            if !job_bar.bar.is_finished() {
+                        Tick::Finished(seq, result, msg) => {
+                            if let Some(job_bar) = bars.get_mut(&seq) {
+                                let sequence_txt = sequence.to_string();
+                                // It doesn't make sense to show that a job is done in 0 seconds
                                 let time = job_bar.start_time.elapsed().as_secs().max(1);
-                                job_bar.result.replace((OperationResult::Success, time));
+
                                 max_time_len = max_time_len.max(Self::count_digits(time));
 
-                                job_bar.bar.finish();
+                                let seq_width = sequence_txt.len();
+                                let job = job_bar.name.as_str();
+                                job_bar.bar.set_prefix(format!(
+                                    "[{seq:seq_width$}/{sequence_txt}][{result}][{time:max_time_len$}s][{job}].",
+                                ));
+                                job_bar.bar.finish_with_message(msg);
+                                job_bar.result.replace((result, time));
+
+                                Self::refresh_all_bars(&mut bars, sequence, max_time_len, None);
                             }
-                        });
-
-                        // Insert graphic bar for the running duration of each bars
-                        let total_time = start_time.elapsed().as_secs().max(1) as usize;
-                        Self::refresh_all_bars(&mut bars, sequence, max_time_len, Some(total_time));
-
-                        // Insert total time bar
-                        let total_bar = mp.add(ProgressBar::new((bars.len() + 1) as u64));
-                        total_bar.set_style(spinner_style.clone());
-                        total_bar.set_prefix(format!("[total] done all in {total_time}s."));
-                        total_bar.finish();
-
-                        bars.clear();
-                        // let _ = mp.clear();
-                        if let Err(e) = tx_response.send(()).await {
-                            let _ = mp.println(format!("Fail to send response: {e}"));
                         }
-                        break;
+                        Tick::Print(msg) => {
+                            let _ = mp.println(msg);
+                        }
+                        Tick::Shutdown(tx_response) => {
+                            bars.iter_mut().for_each(|(_, job_bar)| {
+                                if !job_bar.bar.is_finished() {
+                                    let time = job_bar.start_time.elapsed().as_secs().max(1);
+                                    job_bar.result.replace((OperationResult::Success, time));
+                                    max_time_len = max_time_len.max(Self::count_digits(time));
+
+                                    job_bar.bar.finish();
+                                }
+                            });
+
+                            // Insert graphic bar for the running duration of each bars
+                            let total_time = start_time.elapsed().as_secs().max(1) as usize;
+                            Self::refresh_all_bars(&mut bars, sequence, max_time_len, Some(total_time));
+
+                            // Insert total time bar
+                            let total_bar = mp.add(ProgressBar::new((bars.len() + 1) as u64));
+                            total_bar.set_style(spinner_style.clone());
+                            total_bar.set_prefix(format!("[total] done all in {total_time}s."));
+                            total_bar.finish();
+
+                            bars.clear();
+                            // let _ = mp.clear();
+                            if let Err(e) = tx_response.send(()).await {
+                                let _ = mp.println(format!("Fail to send response: {e}"));
+                            }
+                            break;
+                        }
                     }
                 }
             }
+            }
         }
-        .await;
         Ok(())
     }
 
@@ -221,12 +229,6 @@ impl Tracker {
             .recv()
             .await
             .map_err(|e| Error::new(ErrorKind::NotConnected, e.to_string()))
-    }
-
-    pub async fn progress(&self, sequence: usize, pos: Option<u64>) {
-        if let Err(e) = self.tx.send(Tick::Progress(sequence, pos)).await {
-            eprintln!("Fail to communicate with tracker: {e}");
-        }
     }
 
     pub async fn msg(&self, sequence: usize, log: &str) {

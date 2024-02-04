@@ -86,7 +86,6 @@ pub async fn spawn(
                     if !opts.suppress_msg {
                         TRACKER.msg(sequence, &line).await;
                     }
-                    TRACKER.progress(sequence, None).await;
                     storage.push(line);
                 }
             }
@@ -106,11 +105,8 @@ pub async fn spawn(
                 let read_lines = buf.read_line(&mut line).await?;
                 if read_lines == 0 {
                     break;
-                } else {
-                    TRACKER.progress(sequence, None).await;
-                    if !line.trim().is_empty() {
-                        storage.push(line);
-                    }
+                } else if !line.trim().is_empty() {
+                    storage.push(line);
                 }
             }
             future::pending::<()>().await;
