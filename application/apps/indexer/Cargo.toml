@@ -12,6 +12,7 @@ members = [
     "processor",
     "session",
     "sources",
+    "wasm_plugin/host",
 ]
 
 # only uncomment when profiling
