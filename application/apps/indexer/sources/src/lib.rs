@@ -75,6 +75,7 @@ pub enum Error {
 }
 
 pub(crate) const DEFAULT_READER_CAPACITY: usize = 10 * 1024 * 1024;
+//TODO AAZ: Check if this should be reduced like the other solution
 pub(crate) const DEFAULT_MIN_BUFFER_SPACE: usize = 10 * 1024;
 
 /// A `ByteSource` provides a way to read data from some underlying data source. But it does

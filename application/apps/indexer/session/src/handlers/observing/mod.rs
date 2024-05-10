@@ -61,6 +61,7 @@ pub async fn run_source<S: ByteSource>(
             run_producer(operation_api, state, source_id, producer, rx_tail).await
         }
         ParserType::Dlt(settings) => {
+            //TODO AAZ: Start commenting out here
             let fmt_options = Some(FormatOptions::from(settings.tz.as_ref()));
             let dlt_parser = DltParser::new(
                 settings.filter_config.as_ref().map(|f| f.into()),
@@ -68,6 +69,7 @@ pub async fn run_source<S: ByteSource>(
                 fmt_options.as_ref(),
                 settings.with_storage_header,
             );
+            //TODO AAZ: Finish commenting out and use settings.with_storage_header
             let producer = MessageProducer::new(dlt_parser, source, rx_sde);
             run_producer(operation_api, state, source_id, producer, rx_tail).await
         }

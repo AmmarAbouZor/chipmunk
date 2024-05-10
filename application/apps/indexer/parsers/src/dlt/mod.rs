@@ -65,6 +65,7 @@ impl LogMessage for RawMessage {
 }
 
 #[derive(Default)]
+//TODO AAZ: This is the parser that should be replaced
 pub struct DltParser<'m> {
     pub filter_config: Option<ProcessedDltFilterConfig>,
     pub fibex_metadata: Option<&'m FibexMetadata>,
