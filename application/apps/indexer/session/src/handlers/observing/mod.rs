@@ -1,7 +1,8 @@
-use std::path::PathBuf;
+use std::{env, path::PathBuf};
 
 use crate::{
     operations::{OperationAPI, OperationResult},
+    plugin::{dlt::DltWasmParser, PluginParser},
     state::SessionStateAPI,
     tail,
 };
@@ -36,6 +37,8 @@ pub mod stream;
 
 pub const FLUSH_TIMEOUT_IN_MS: u128 = 500;
 
+pub const USE_WASM_DLT_ENV: &str = "USE_WASM_DLT";
+
 pub async fn run_source<S: ByteSource>(
     operation_api: OperationAPI,
     state: SessionStateAPI,
@@ -61,17 +64,24 @@ pub async fn run_source<S: ByteSource>(
             run_producer(operation_api, state, source_id, producer, rx_tail).await
         }
         ParserType::Dlt(settings) => {
-            //TODO AAZ: Start commenting out here
-            let fmt_options = Some(FormatOptions::from(settings.tz.as_ref()));
-            let dlt_parser = DltParser::new(
-                settings.filter_config.as_ref().map(|f| f.into()),
-                settings.fibex_metadata.as_ref(),
-                fmt_options.as_ref(),
-                settings.with_storage_header,
-            );
-            //TODO AAZ: Finish commenting out and use settings.with_storage_header
-            let producer = MessageProducer::new(dlt_parser, source, rx_sde);
-            run_producer(operation_api, state, source_id, producer, rx_tail).await
+            if env::var(USE_WASM_DLT_ENV).is_ok() {
+                let dummy_path = PathBuf::from(".");
+                let wasm_parser = DltWasmParser::create(dummy_path);
+
+                let producer = MessageProducer::new(wasm_parser, source, rx_sde);
+                run_producer(operation_api, state, source_id, producer, rx_tail).await
+            } else {
+                let fmt_options = Some(FormatOptions::from(settings.tz.as_ref()));
+                let dlt_parser = DltParser::new(
+                    settings.filter_config.as_ref().map(|f| f.into()),
+                    settings.fibex_metadata.as_ref(),
+                    fmt_options.as_ref(),
+                    settings.with_storage_header,
+                );
+                //TODO AAZ: Finish commenting out and use settings.with_storage_header
+                let producer = MessageProducer::new(dlt_parser, source, rx_sde);
+                run_producer(operation_api, state, source_id, producer, rx_tail).await
+            }
         }
     }
 }
