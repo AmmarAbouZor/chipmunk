@@ -1,8 +1,10 @@
 use std::{env, path::PathBuf};
 
 use crate::{
+    events::{NativeError, NativeErrorKind},
     operations::{OperationAPI, OperationResult},
     plugin::{dlt::DltWasmParser, PluginParser},
+    progress::Severity,
     state::SessionStateAPI,
     tail,
 };
@@ -66,7 +68,11 @@ pub async fn run_source<S: ByteSource>(
         ParserType::Dlt(settings) => {
             if env::var(USE_WASM_DLT_ENV).is_ok() {
                 let dummy_path = PathBuf::from(".");
-                let wasm_parser = DltWasmParser::create(dummy_path);
+                let wasm_parser = DltWasmParser::create(dummy_path).map_err(|err| NativeError {
+                    kind: NativeErrorKind::Io,
+                    severity: Severity::ERROR,
+                    message: Some(err),
+                })?;
 
                 let producer = MessageProducer::new(wasm_parser, source, rx_sde);
                 run_producer(operation_api, state, source_id, producer, rx_tail).await

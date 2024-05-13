@@ -5,8 +5,8 @@ use serde::Serialize;
 
 pub mod dlt;
 
-pub trait PluginParser: Parser<PluginParseMessage> {
-    fn create(config_path: impl AsRef<Path>) -> Self;
+pub trait PluginParser: Parser<PluginParseMessage> + Sized {
+    fn create(config_path: impl AsRef<Path>) -> Result<Self, String>;
 }
 
 #[derive(Debug, Serialize)]
