@@ -10,6 +10,10 @@ edition = "2021"
 [dependencies]
 wit-bindgen = "0.24.0"
 wit-bindgen-rt = { version = "0.24.0", features = ["bitflags"] }
+dlt-core = { path = "../../../../../../dlt-core" }
+serde = "1.0.201"
+chrono = "0.4.38"
+humantime = "2.1.0"
 
 [lib]
 crate-type = ["cdylib"]

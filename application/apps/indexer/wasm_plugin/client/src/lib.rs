@@ -1,8 +1,8 @@
-use crate::exports::host::parse::parsing;
-use crate::exports::host::parse::parsing::Guest;
-use crate::exports::host::parse::parsing::ParseReturn;
+mod dlt_parser;
 
-use exports::host::parse::parsing::GuestParser;
+use crate::exports::host::parse::parsing::Guest;
+
+use dlt_parser::DltParser;
 use wit_bindgen::generate;
 
 generate!({
@@ -14,18 +14,6 @@ struct Component;
 
 impl Guest for Component {
     type Parser = DltParser;
-}
-
-struct DltParser;
-
-impl GuestParser for DltParser {
-    fn new() -> Self {
-        Self
-    }
-
-    fn parse(&self, data: Vec<u8>, timestamp: Option<u64>) -> Result<ParseReturn, parsing::Error> {
-        todo!()
-    }
 }
 
 export!(Component);
