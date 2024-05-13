@@ -20,7 +20,7 @@ struct PluginState;
 
 // Suppress unused fields here while prototyping
 #[allow(unused)]
-pub struct DltParser {
+pub struct WasmParser {
     engine: Engine,
     component: Component,
     linker: Linker<PluginState>,
@@ -29,7 +29,7 @@ pub struct DltParser {
     parser_res: ResourceAny,
 }
 
-impl Drop for DltParser {
+impl Drop for WasmParser {
     fn drop(&mut self) {
         // It's required to call drop on the resource Parser instance manually
         if let Err(err) = self.parser_res.resource_drop(&mut self.store) {
@@ -38,7 +38,7 @@ impl Drop for DltParser {
     }
 }
 
-impl<'a> DltParser {
+impl<'a> WasmParser {
     //TODO: Read plugin config from file after prototyping phase
     pub fn create(_config_path: impl AsRef<Path>) -> anyhow::Result<Self> {
         let wasm_path = PathBuf::from(WASM_FILE_PATH);
@@ -77,7 +77,7 @@ impl<'a> DltParser {
     }
 }
 
-impl Parser<PluginParseMessage> for DltParser {
+impl Parser<PluginParseMessage> for WasmParser {
     fn parse<'a>(
         &mut self,
         input: &'a [u8],
@@ -88,6 +88,7 @@ impl Parser<PluginParseMessage> for DltParser {
             .interface0
             .parser()
             .call_parse(&mut self.store, self.parser_res, input, timestamp)
+            //TODO: Change this after implementing error definitions
             .map_err(|err| parsers::Error::Parse(err.to_string()))?;
 
         match raw_res {

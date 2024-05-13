@@ -67,8 +67,9 @@ pub async fn run_source<S: ByteSource>(
         ParserType::Dlt(settings) => {
             if env::var(USE_WASM_DLT_ENV).is_ok() {
                 let dummy_path = PathBuf::from(".");
+                //TODO: Add new error type for the plugins
                 let wasm_parser =
-                    plugin_host::DltParser::create(dummy_path).map_err(|err| NativeError {
+                    plugin_host::WasmParser::create(dummy_path).map_err(|err| NativeError {
                         kind: NativeErrorKind::Io,
                         severity: Severity::ERROR,
                         message: Some(err.to_string()),
@@ -84,7 +85,6 @@ pub async fn run_source<S: ByteSource>(
                     fmt_options.as_ref(),
                     settings.with_storage_header,
                 );
-                //TODO AAZ: Finish commenting out and use settings.with_storage_header
                 let producer = MessageProducer::new(dlt_parser, source, rx_sde);
                 run_producer(operation_api, state, source_id, producer, rx_tail).await
             }

@@ -1,11 +1,11 @@
-mod dlt_parser;
+mod wasm_parser;
 
 use std::fmt::Display;
 
 use parsers::LogMessage;
 use serde::Serialize;
 
-pub use dlt_parser::DltParser;
+pub use wasm_parser::WasmParser;
 
 #[derive(Debug, Serialize)]
 pub struct PluginParseMessage {
