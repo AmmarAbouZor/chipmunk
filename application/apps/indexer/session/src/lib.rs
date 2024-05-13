@@ -3,7 +3,6 @@ pub mod events;
 mod handlers;
 pub mod operations;
 pub mod paths;
-pub mod plugin;
 pub mod progress;
 pub mod session;
 pub mod state;

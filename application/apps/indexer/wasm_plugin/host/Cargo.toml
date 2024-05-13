@@ -9,3 +9,5 @@ edition = "2021"
 anyhow = "1.0.83"
 log = "0.4.21"
 wasmtime = "20.0.2"
+parsers = {path = "../../parsers"}
+serde = "1.0"

@@ -1,11 +1,14 @@
 use std::path::{Path, PathBuf};
 
+use parsers::Parser;
 use wasmtime::{
     component::{Component, Linker, ResourceAny},
     Config, Engine, Store,
 };
 
-pub use self::exports::host::parse::parsing::{Attachment, Error, ParseReturn, ParseYield};
+use crate::PluginParseMessage;
+
+use self::exports::host::parse::parsing::{Attachment, Error, ParseYield};
 
 // This should be removed after prototyping
 // File path should be read from config
@@ -72,19 +75,65 @@ impl<'a> DltParser {
             parser_res,
         })
     }
+}
 
-    pub fn parse(
+impl Parser<PluginParseMessage> for DltParser {
+    fn parse<'a>(
         &mut self,
-        data: &[u8],
+        input: &'a [u8],
         timestamp: Option<u64>,
-    ) -> anyhow::Result<Result<ParseReturn, Error>> {
-        // let test = parsers
+    ) -> Result<(&'a [u8], Option<parsers::ParseYield<PluginParseMessage>>), parsers::Error> {
+        let raw_res = self
+            .parse_translate
+            .interface0
+            .parser()
+            .call_parse(&mut self.store, self.parser_res, input, timestamp)
+            .map_err(|err| parsers::Error::Parse(err.to_string()))?;
 
-        self.parse_translate.interface0.parser().call_parse(
-            &mut self.store,
-            self.parser_res,
-            data,
-            timestamp,
-        )
+        match raw_res {
+            Ok(val) => {
+                let remain = &input[val.cursor as usize..];
+                let yld = val.value.map(|y| y.into_parsers_yield());
+
+                Ok((remain, yld))
+            }
+            Err(err) => Err(err.into_parsers_err()),
+        }
+    }
+}
+
+impl Attachment {
+    fn into_parsers_attachment(self) -> parsers::Attachment {
+        parsers::Attachment {
+            data: self.data,
+            name: self.name,
+            size: self.size as usize,
+            messages: self.messages.into_iter().map(|n| n as usize).collect(),
+            created_date: self.created_date,
+            modified_date: self.modified_date,
+        }
+    }
+}
+
+impl Error {
+    fn into_parsers_err(self) -> parsers::Error {
+        match self {
+            Error::Parse(msg) => parsers::Error::Parse(msg),
+            Error::Incomplete => parsers::Error::Incomplete,
+            Error::Eof => parsers::Error::Eof,
+        }
+    }
+}
+
+impl ParseYield {
+    fn into_parsers_yield(self) -> parsers::ParseYield<PluginParseMessage> {
+        use parsers::ParseYield as HostYield;
+        match self {
+            ParseYield::Message(msg) => HostYield::Message(msg.into()),
+            ParseYield::Attachment(att) => HostYield::Attachment(att.into_parsers_attachment()),
+            ParseYield::MessageAndAttachment((msg, att)) => {
+                HostYield::MessageAndAttachment((msg.into(), att.into_parsers_attachment()))
+            }
+        }
     }
 }
