@@ -14,7 +14,9 @@ use self::exports::host::parse::parsing::{Attachment, Error, ParseYield};
 // This should be removed after prototyping
 // File path should be read from config
 const WASM_FILE_PATH: &str =
-    "application/apps/indexer/wasm_plugin/client/target/wasm32-wasi/release/client.wasm";
+    "application/apps/indexer/wasm_plugin/dlt-client/target/wasm32-wasi/release/dlt_client.wasm";
+// const WASM_FILE_PATH: &str =
+//     "application/apps/indexer/wasm_plugin/client/target/wasm32-wasi/release/client.wasm";
 
 wasmtime::component::bindgen!();
 
@@ -62,7 +64,14 @@ impl Drop for WasmParser {
 impl<'a> WasmParser {
     //TODO: Read plugin config from file after prototyping phase
     pub fn create(_config_path: impl AsRef<Path>) -> anyhow::Result<Self> {
-        let wasm_path = std::env::current_dir()?.join("../..").join(WASM_FILE_PATH);
+        // assume we are calling the function from indexer-cli
+        let mut wasm_path = std::env::current_dir()?
+            .join("../../../..")
+            .join(WASM_FILE_PATH);
+        // if not indexer-cli then assume we are calling it from rake in root directory
+        if !wasm_path.exists() {
+            wasm_path = std::env::current_dir()?.join("../..").join(WASM_FILE_PATH);
+        }
         dbg!(&wasm_path);
         anyhow::ensure!(
             wasm_path.exists(),

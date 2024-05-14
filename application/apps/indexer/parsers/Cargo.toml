@@ -7,7 +7,7 @@ edition = "2021"
 byteorder = "1.4"
 chrono = "0.4"
 chrono-tz = "0.8"
-dlt-core = "0.14"
+dlt-core = { path = "../../../../../dlt-core" }
 humantime = "2.1"
 lazy_static = "1.4"
 log = "0.4.17"
