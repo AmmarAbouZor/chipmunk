@@ -14,6 +14,8 @@ dlt-core = { path = "../../../../../../dlt-core" }
 serde = "1.0.201"
 chrono = "0.4.38"
 humantime = "2.1.0"
+# This is temporary solution until we apply wasi then we can use chrono
+time = "0.3.36"
 
 [lib]
 crate-type = ["cdylib"]
