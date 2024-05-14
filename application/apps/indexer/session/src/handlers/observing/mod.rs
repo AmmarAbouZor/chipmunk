@@ -66,18 +66,28 @@ pub async fn run_source<S: ByteSource>(
         }
         ParserType::Dlt(settings) => {
             if env::var(USE_WASM_DLT_ENV).is_ok() {
+                println!("------------------------------------------------------");
+                println!("----------------     WASM used      ------------------");
+                println!("------------------------------------------------------");
                 let dummy_path = PathBuf::from(".");
                 //TODO: Add new error type for the plugins
-                let wasm_parser =
-                    plugin_host::WasmParser::create(dummy_path).map_err(|err| NativeError {
+                let wasm_parser = plugin_host::WasmParser::create(dummy_path).map_err(|err| {
+                    dbg!(&err);
+                    NativeError {
                         kind: NativeErrorKind::Io,
                         severity: Severity::ERROR,
                         message: Some(err.to_string()),
-                    })?;
+                    }
+                })?;
+                // println!("Wasm Parser Created");
 
                 let producer = MessageProducer::new(wasm_parser, source, rx_sde);
+                // println!("Producer Created");
                 run_producer(operation_api, state, source_id, producer, rx_tail).await
             } else {
+                println!("------------------------------------------------------");
+                println!("---------------     NATIVE used     ------------------");
+                println!("------------------------------------------------------");
                 let fmt_options = Some(FormatOptions::from(settings.tz.as_ref()));
                 let dlt_parser = DltParser::new(
                     settings.filter_config.as_ref().map(|f| f.into()),
@@ -125,6 +135,7 @@ async fn run_producer<T: LogMessage, P: Parser<T>, S: ByteSource>(
             Next::Item(item) => {
                 match item {
                     MessageStreamItem::Item(ParseYield::Message(item)) => {
+                        // println!("Message: {item}");
                         state
                             .write_session_file(source_id, format!("{item}\n"))
                             .await?;
@@ -133,16 +144,19 @@ async fn run_producer<T: LogMessage, P: Parser<T>, S: ByteSource>(
                         item,
                         attachment,
                     ))) => {
+                        // println!("Message and attachment: {item}, {attachment:?}");
                         state
                             .write_session_file(source_id, format!("{item}\n"))
                             .await?;
                         state.add_attachment(attachment)?;
                     }
                     MessageStreamItem::Item(ParseYield::Attachment(attachment)) => {
+                        // println!("Attachment: {attachment:?}");
                         state.add_attachment(attachment)?;
                     }
                     MessageStreamItem::Done => {
                         trace!("observe, message stream is done");
+                        // println!("observe, message stream is done");
                         state.flush_session_file().await?;
                         state.file_read().await?;
                     }
@@ -150,12 +164,15 @@ async fn run_producer<T: LogMessage, P: Parser<T>, S: ByteSource>(
                     //     state.file_read().await?;
                     // }
                     MessageStreamItem::Skipped => {
+                        // println!("observe: skipped a message");
                         trace!("observe: skipped a message");
                     }
                     MessageStreamItem::Incomplete => {
+                        // println!("observe: incomplete message");
                         trace!("observe: incomplete message");
                     }
                     MessageStreamItem::Empty => {
+                        // println!("observe: empty message");
                         trace!("observe: empty message");
                     }
                 }

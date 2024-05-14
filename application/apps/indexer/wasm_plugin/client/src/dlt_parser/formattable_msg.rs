@@ -126,41 +126,20 @@ struct DltDltTimeStamp<'a>(&'a DltTimeStamp);
 
 impl<'a> fmt::Display for DltDltTimeStamp<'a> {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        // This solution uses `time` crate since it can be compiled to wasm32-unknown-unknown
-        // The original solution is commented out because chrono needs JS to be compiled to wasm32-unknown-unknown
-        // The original code can be used when we activate wasi
-        let dt = time::OffsetDateTime::from_unix_timestamp_nanos(
-            i128::from(self.0.seconds) * 1000_000 + i128::from(self.0.microseconds) * 1000,
-        );
+        use chrono::{DateTime, Utc};
+        let dt: Option<DateTime<Utc>> =
+            DateTime::from_timestamp(i64::from(self.0.seconds), self.0.microseconds * 1000);
         match dt {
-            Ok(dt) => {
+            Some(dt) => {
                 let system_time: std::time::SystemTime = std::time::SystemTime::from(dt);
                 write!(f, "{}", humantime::format_rfc3339(system_time))
             }
-            Err(_) => write!(
+            None => write!(
                 f,
                 "no valid timestamp for {}s/{}us",
                 self.0.seconds, self.0.microseconds
             ),
         }
-
-        // *************************************************************************************************
-        // ****** This is the solution using chrono. This cant' be compiled to wasm32-unknown-unknown ******
-        // *************************************************************************************************
-        // use chrono::{DateTime, Utc};
-        // let dt: Option<DateTime<Utc>> =
-        //     DateTime::from_timestamp(i64::from(self.0.seconds), self.0.microseconds * 1000);
-        // match dt {
-        //     Some(dt) => {
-        //         let system_time: std::time::SystemTime = std::time::SystemTime::from(dt);
-        //         write!(f, "{}", humantime::format_rfc3339(system_time))
-        //     }
-        //     None => write!(
-        //         f,
-        //         "no valid timestamp for {}s/{}us",
-        //         self.0.seconds, self.0.microseconds
-        //     ),
-        // }
     }
 }
 

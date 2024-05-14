@@ -18,7 +18,7 @@ pub struct DltParser {
 impl GuestParser for DltParser {
     fn new() -> Self {
         Self {
-            with_storage_header: false,
+            with_storage_header: true,
             ft_scanner: RefCell::new(FtScanner::new()),
         }
     }

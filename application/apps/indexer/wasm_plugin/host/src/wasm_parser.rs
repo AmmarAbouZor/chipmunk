@@ -1,10 +1,11 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use parsers::Parser;
 use wasmtime::{
     component::{Component, Linker, ResourceAny},
     Config, Engine, Store,
 };
+use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiView};
 
 use crate::PluginParseMessage;
 
@@ -12,11 +13,31 @@ use self::exports::host::parse::parsing::{Attachment, Error, ParseYield};
 
 // This should be removed after prototyping
 // File path should be read from config
-const WASM_FILE_PATH: &str = "../client/target/wasm32-unknown-unknown/release/client.wasm";
+const WASM_FILE_PATH: &str =
+    "application/apps/indexer/wasm_plugin/client/target/wasm32-wasi/release/client.wasm";
 
 wasmtime::component::bindgen!();
 
-struct PluginState;
+struct PluginState {
+    ctx: WasiCtx,
+    table: ResourceTable,
+}
+
+impl PluginState {
+    fn new(ctx: WasiCtx, table: ResourceTable) -> Self {
+        Self { ctx, table }
+    }
+}
+
+impl WasiView for PluginState {
+    fn table(&mut self) -> &mut ResourceTable {
+        &mut self.table
+    }
+
+    fn ctx(&mut self) -> &mut WasiCtx {
+        &mut self.ctx
+    }
+}
 
 // Suppress unused fields here while prototyping
 #[allow(unused)]
@@ -41,7 +62,8 @@ impl Drop for WasmParser {
 impl<'a> WasmParser {
     //TODO: Read plugin config from file after prototyping phase
     pub fn create(_config_path: impl AsRef<Path>) -> anyhow::Result<Self> {
-        let wasm_path = PathBuf::from(WASM_FILE_PATH);
+        let wasm_path = std::env::current_dir()?.join("../..").join(WASM_FILE_PATH);
+        dbg!(&wasm_path);
         anyhow::ensure!(
             wasm_path.exists(),
             "Wasm Plugin file doesn't exist. Path: {}",
@@ -50,14 +72,19 @@ impl<'a> WasmParser {
 
         let mut config = Config::new();
         config.wasm_component_model(true);
+        config.async_support(false);
 
         let engine = Engine::new(&config)?;
 
         let component = Component::from_file(&engine, wasm_path)?;
 
-        let linker = Linker::new(&engine);
+        let mut linker = Linker::new(&engine);
+        wasmtime_wasi::add_to_linker_sync(&mut linker)?;
 
-        let mut store = Store::new(&engine, PluginState);
+        let ctx = WasiCtxBuilder::new().build();
+        let table = ResourceTable::new();
+
+        let mut store = Store::new(&engine, PluginState::new(ctx, table));
 
         let (parse_translate, _instance) = Parse::instantiate(&mut store, &component, &linker)?;
 
@@ -89,16 +116,25 @@ impl Parser<PluginParseMessage> for WasmParser {
             .parser()
             .call_parse(&mut self.store, self.parser_res, input, timestamp)
             //TODO: Change this after implementing error definitions
-            .map_err(|err| parsers::Error::Parse(err.to_string()))?;
+            .map_err(|err| {
+                println!("TODO AAZ: Early Error: {err}");
+                parsers::Error::Parse(err.to_string())
+            })?;
 
         match raw_res {
             Ok(val) => {
                 let remain = &input[val.cursor as usize..];
                 let yld = val.value.map(|y| y.into_parsers_yield());
 
+                // println!("TODO AAZ: remain: {remain:?}");
+                // println!("TODO AAZ: yld: {yld:?}");
+
                 Ok((remain, yld))
             }
-            Err(err) => Err(err.into_parsers_err()),
+            Err(err) => {
+                println!("TODO AAZ: Error: {err}");
+                Err(err.into_parsers_err())
+            }
         }
     }
 }
