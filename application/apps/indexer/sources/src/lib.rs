@@ -78,6 +78,10 @@ pub(crate) const DEFAULT_READER_CAPACITY: usize = 10 * 1024 * 1024;
 //TODO AAZ: Check if this should be reduced like the other solution
 pub(crate) const DEFAULT_MIN_BUFFER_SPACE: usize = 10 * 1024;
 
+//TODO AAZ: Having these values make the performance difference about 2 times instaed of 50 times
+// pub(crate) const DEFAULT_READER_CAPACITY: usize = 10 * 1024;
+// pub(crate) const DEFAULT_MIN_BUFFER_SPACE: usize = 1 * 1024;
+
 /// A `ByteSource` provides a way to read data from some underlying data source. But it does
 /// not provide a simple read interface, rather it allows implementations to filter the data
 /// while reading it from it's underlying source.
