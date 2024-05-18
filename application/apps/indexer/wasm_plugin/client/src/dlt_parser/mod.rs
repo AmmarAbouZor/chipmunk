@@ -2,7 +2,7 @@ mod formattable_msg;
 mod ft_message_parser;
 mod ft_scanner;
 
-use std::cell::RefCell;
+use std::{cell::RefCell, ops::DerefMut};
 
 use dlt_core::{dlt, parse::dlt_message};
 
@@ -15,22 +15,19 @@ pub struct DltParser {
     ft_scanner: RefCell<FtScanner>,
 }
 
-impl GuestParser for DltParser {
-    fn new() -> Self {
-        Self {
-            with_storage_header: true,
-            ft_scanner: RefCell::new(FtScanner::new()),
-        }
-    }
-
-    fn parse(&self, data: Vec<u8>, timestamp: Option<u64>) -> Result<ParseReturn, parsing::Error> {
-        match dlt_message(&data, None, self.with_storage_header)
+impl DltParser {
+    fn parse_intern(
+        with_storage_header: bool,
+        ft_scanner: &mut FtScanner,
+        data: &[u8],
+        timestamp: Option<u64>,
+    ) -> Result<ParseReturn, parsing::Error> {
+        match dlt_message(&data, None, with_storage_header)
             .map_err(|e| Error::Parse(format!("{e}")))?
         {
             (rest, dlt_core::parse::ParsedMessage::FilteredOut(_n)) => {
                 let offset = (data.len() - rest.len()) as u64;
                 // TODO AAZ: This retured rest on the original version.
-                // Ok((rest, None))
                 Ok(ParseReturn {
                     cursor: offset,
                     value: None,
@@ -40,7 +37,7 @@ impl GuestParser for DltParser {
                 Err(Error::Parse("Invalid parse".to_owned()))
             }
             (rest, dlt_core::parse::ParsedMessage::Item(i)) => {
-                let attachment = self.ft_scanner.borrow_mut().process(&i);
+                let attachment = ft_scanner.process(&i);
                 let msg_with_storage_header = if i.storage_header.is_some() {
                     i
                 } else {
@@ -64,6 +61,42 @@ impl GuestParser for DltParser {
                     cursor: offset,
                     value,
                 })
+            }
+        }
+    }
+}
+
+impl GuestParser for DltParser {
+    fn new() -> Self {
+        Self {
+            with_storage_header: true,
+            ft_scanner: RefCell::new(FtScanner::new()),
+        }
+    }
+
+    fn parse(
+        &self,
+        data: Vec<u8>,
+        timestamp: Option<u64>,
+    ) -> Vec<Result<ParseReturn, parsing::Error>> {
+        let mut results = Vec::new();
+        let mut slice = &data[0..];
+        let mut ft_scanner = self.ft_scanner.borrow_mut();
+        loop {
+            match Self::parse_intern(
+                self.with_storage_header,
+                ft_scanner.deref_mut(),
+                slice,
+                timestamp,
+            ) {
+                Ok(res) => {
+                    slice = &slice[res.cursor as usize..];
+                    results.push(Ok(res));
+                }
+                Err(err) => {
+                    results.push(Err(err));
+                    return results;
+                }
             }
         }
     }
