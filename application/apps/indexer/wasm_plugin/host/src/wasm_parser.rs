@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{collections::VecDeque, path::Path, usize};
 
 use parsers::Parser;
 use wasmtime::{
@@ -9,7 +9,9 @@ use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiView};
 
 use crate::PluginParseMessage;
 
-use self::exports::host::parse::parsing::{Attachment, Error, ParseYield};
+use self::exports::host::parse::parsing::{Attachment, Error, ParseReturn, ParseYield};
+
+type ParseResult = Result<ParseReturn, Error>;
 
 // This should be removed after prototyping
 // File path should be read from config
@@ -50,6 +52,7 @@ pub struct WasmParser {
     store: Store<PluginState>,
     parse_translate: Parse,
     parser_res: ResourceAny,
+    cache: VecDeque<ParseResult>,
 }
 
 impl Drop for WasmParser {
@@ -61,7 +64,7 @@ impl Drop for WasmParser {
     }
 }
 
-impl<'a> WasmParser {
+impl WasmParser {
     //TODO: Read plugin config from file after prototyping phase
     pub fn create(_config_path: impl AsRef<Path>) -> anyhow::Result<Self> {
         // assume we are calling the function from indexer-cli
@@ -109,6 +112,7 @@ impl<'a> WasmParser {
             store,
             parse_translate,
             parser_res,
+            cache: VecDeque::new(),
         })
     }
 }
@@ -119,30 +123,39 @@ impl Parser<PluginParseMessage> for WasmParser {
         input: &'a [u8],
         timestamp: Option<u64>,
     ) -> Result<(&'a [u8], Option<parsers::ParseYield<PluginParseMessage>>), parsers::Error> {
-        let raw_res = self
-            .parse_translate
-            .interface0
-            .parser()
-            .call_parse(&mut self.store, self.parser_res, input, timestamp)
-            //TODO: Change this after implementing error definitions
-            .map_err(|err| {
-                println!("TODO AAZ: Early Error: {err}");
-                parsers::Error::Parse(err.to_string())
-            })?;
+        let raw_res = match self.cache.pop_front() {
+            // In case of errors we send the whole slice again. This could be optimized to reduce
+            // the calls to wasm
+            None | Some(Err(Error::Parse(_))) | Some(Err(Error::Incomplete)) => {
+                let results = self
+                    .parse_translate
+                    .interface0
+                    .parser()
+                    .call_parse(&mut self.store, self.parser_res, input, timestamp)
+                    //TODO: Change this after implementing error definitions
+                    .map_err(|err| {
+                        println!("TODO AAZ: Early Error: {err}");
+                        parsers::Error::Parse(err.to_string())
+                    })?;
+                self.cache = results.into();
+                self.cache
+                    .pop_front()
+                    .expect("Wasm always returns semothing")
+            }
+            Some(res) => res,
+        };
 
         match raw_res {
             Ok(val) => {
                 let remain = &input[val.cursor as usize..];
                 let yld = val.value.map(|y| y.into_parsers_yield());
 
-                // println!("TODO AAZ: remain: {remain:?}");
-                // println!("TODO AAZ: yld: {yld:?}");
-
                 Ok((remain, yld))
             }
             Err(err) => {
-                println!("TODO AAZ: Error: {err}");
-                Err(err.into_parsers_err())
+                let err = err.into_parsers_err();
+                // println!("TODO AAZ: Error: {err}");
+                Err(err)
             }
         }
     }

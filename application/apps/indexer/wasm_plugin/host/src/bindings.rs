@@ -85,13 +85,6 @@ pub mod exports {
                         }
                     }
                 }
-                impl ::core::fmt::Display for Error {
-                    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-                        write!(f, "{:?}", self)
-                    }
-                }
-
-                impl std::error::Error for Error {}
 
                 #[derive(Debug)]
                 #[repr(transparent)]
@@ -266,287 +259,348 @@ pub mod exports {
                         },
                     );
                     let ptr2 = _RET_AREA.0.as_mut_ptr().cast::<u8>();
-                    match result1 {
-                        Ok(e) => {
-                            *ptr2.add(0).cast::<u8>() = (0i32) as u8;
-                            let ParseReturn {
-                                value: value3,
-                                cursor: cursor3,
-                            } = e;
-                            match value3 {
-                                Some(e) => {
-                                    *ptr2.add(8).cast::<u8>() = (1i32) as u8;
+                    let vec20 = result1;
+                    let len20 = vec20.len();
+                    let layout20 =
+                        _rt::alloc::Layout::from_size_align_unchecked(vec20.len() * 96, 8);
+                    let result20 = if layout20.size() != 0 {
+                        let ptr = _rt::alloc::alloc(layout20).cast::<u8>();
+                        if ptr.is_null() {
+                            _rt::alloc::handle_alloc_error(layout20);
+                        }
+                        ptr
+                    } else {
+                        {
+                            ::core::ptr::null_mut()
+                        }
+                    };
+                    for (i, e) in vec20.into_iter().enumerate() {
+                        let base = result20.add(i * 96);
+                        {
+                            match e {
+                                Ok(e) => {
+                                    *base.add(0).cast::<u8>() = (0i32) as u8;
+                                    let ParseReturn {
+                                        value: value3,
+                                        cursor: cursor3,
+                                    } = e;
+                                    match value3 {
+                                        Some(e) => {
+                                            *base.add(8).cast::<u8>() = (1i32) as u8;
+                                            match e {
+                                                ParseYield::Message(e) => {
+                                                    *base.add(16).cast::<u8>() = (0i32) as u8;
+                                                    let vec4 = (e.into_bytes()).into_boxed_slice();
+                                                    let ptr4 = vec4.as_ptr().cast::<u8>();
+                                                    let len4 = vec4.len();
+                                                    ::core::mem::forget(vec4);
+                                                    *base.add(28).cast::<usize>() = len4;
+                                                    *base.add(24).cast::<*mut u8>() =
+                                                        ptr4.cast_mut();
+                                                }
+                                                ParseYield::Attachment(e) => {
+                                                    *base.add(16).cast::<u8>() = (1i32) as u8;
+                                                    let Attachment {
+                                                        name: name5,
+                                                        size: size5,
+                                                        created_date: created_date5,
+                                                        modified_date: modified_date5,
+                                                        messages: messages5,
+                                                        data: data5,
+                                                    } = e;
+                                                    let vec6 =
+                                                        (name5.into_bytes()).into_boxed_slice();
+                                                    let ptr6 = vec6.as_ptr().cast::<u8>();
+                                                    let len6 = vec6.len();
+                                                    ::core::mem::forget(vec6);
+                                                    *base.add(28).cast::<usize>() = len6;
+                                                    *base.add(24).cast::<*mut u8>() =
+                                                        ptr6.cast_mut();
+                                                    *base.add(32).cast::<i64>() =
+                                                        _rt::as_i64(size5);
+                                                    match created_date5 {
+                                                        Some(e) => {
+                                                            *base.add(40).cast::<u8>() =
+                                                                (1i32) as u8;
+                                                            let vec7 =
+                                                                (e.into_bytes()).into_boxed_slice();
+                                                            let ptr7 = vec7.as_ptr().cast::<u8>();
+                                                            let len7 = vec7.len();
+                                                            ::core::mem::forget(vec7);
+                                                            *base.add(48).cast::<usize>() = len7;
+                                                            *base.add(44).cast::<*mut u8>() =
+                                                                ptr7.cast_mut();
+                                                        }
+                                                        None => {
+                                                            *base.add(40).cast::<u8>() =
+                                                                (0i32) as u8;
+                                                        }
+                                                    };
+                                                    match modified_date5 {
+                                                        Some(e) => {
+                                                            *base.add(52).cast::<u8>() =
+                                                                (1i32) as u8;
+                                                            let vec8 =
+                                                                (e.into_bytes()).into_boxed_slice();
+                                                            let ptr8 = vec8.as_ptr().cast::<u8>();
+                                                            let len8 = vec8.len();
+                                                            ::core::mem::forget(vec8);
+                                                            *base.add(60).cast::<usize>() = len8;
+                                                            *base.add(56).cast::<*mut u8>() =
+                                                                ptr8.cast_mut();
+                                                        }
+                                                        None => {
+                                                            *base.add(52).cast::<u8>() =
+                                                                (0i32) as u8;
+                                                        }
+                                                    };
+                                                    let vec9 = (messages5).into_boxed_slice();
+                                                    let ptr9 = vec9.as_ptr().cast::<u8>();
+                                                    let len9 = vec9.len();
+                                                    ::core::mem::forget(vec9);
+                                                    *base.add(68).cast::<usize>() = len9;
+                                                    *base.add(64).cast::<*mut u8>() =
+                                                        ptr9.cast_mut();
+                                                    let vec10 = (data5).into_boxed_slice();
+                                                    let ptr10 = vec10.as_ptr().cast::<u8>();
+                                                    let len10 = vec10.len();
+                                                    ::core::mem::forget(vec10);
+                                                    *base.add(76).cast::<usize>() = len10;
+                                                    *base.add(72).cast::<*mut u8>() =
+                                                        ptr10.cast_mut();
+                                                }
+                                                ParseYield::MessageAndAttachment(e) => {
+                                                    *base.add(16).cast::<u8>() = (2i32) as u8;
+                                                    let (t11_0, t11_1) = e;
+                                                    let vec12 =
+                                                        (t11_0.into_bytes()).into_boxed_slice();
+                                                    let ptr12 = vec12.as_ptr().cast::<u8>();
+                                                    let len12 = vec12.len();
+                                                    ::core::mem::forget(vec12);
+                                                    *base.add(28).cast::<usize>() = len12;
+                                                    *base.add(24).cast::<*mut u8>() =
+                                                        ptr12.cast_mut();
+                                                    let Attachment {
+                                                        name: name13,
+                                                        size: size13,
+                                                        created_date: created_date13,
+                                                        modified_date: modified_date13,
+                                                        messages: messages13,
+                                                        data: data13,
+                                                    } = t11_1;
+                                                    let vec14 =
+                                                        (name13.into_bytes()).into_boxed_slice();
+                                                    let ptr14 = vec14.as_ptr().cast::<u8>();
+                                                    let len14 = vec14.len();
+                                                    ::core::mem::forget(vec14);
+                                                    *base.add(36).cast::<usize>() = len14;
+                                                    *base.add(32).cast::<*mut u8>() =
+                                                        ptr14.cast_mut();
+                                                    *base.add(40).cast::<i64>() =
+                                                        _rt::as_i64(size13);
+                                                    match created_date13 {
+                                                        Some(e) => {
+                                                            *base.add(48).cast::<u8>() =
+                                                                (1i32) as u8;
+                                                            let vec15 =
+                                                                (e.into_bytes()).into_boxed_slice();
+                                                            let ptr15 = vec15.as_ptr().cast::<u8>();
+                                                            let len15 = vec15.len();
+                                                            ::core::mem::forget(vec15);
+                                                            *base.add(56).cast::<usize>() = len15;
+                                                            *base.add(52).cast::<*mut u8>() =
+                                                                ptr15.cast_mut();
+                                                        }
+                                                        None => {
+                                                            *base.add(48).cast::<u8>() =
+                                                                (0i32) as u8;
+                                                        }
+                                                    };
+                                                    match modified_date13 {
+                                                        Some(e) => {
+                                                            *base.add(60).cast::<u8>() =
+                                                                (1i32) as u8;
+                                                            let vec16 =
+                                                                (e.into_bytes()).into_boxed_slice();
+                                                            let ptr16 = vec16.as_ptr().cast::<u8>();
+                                                            let len16 = vec16.len();
+                                                            ::core::mem::forget(vec16);
+                                                            *base.add(68).cast::<usize>() = len16;
+                                                            *base.add(64).cast::<*mut u8>() =
+                                                                ptr16.cast_mut();
+                                                        }
+                                                        None => {
+                                                            *base.add(60).cast::<u8>() =
+                                                                (0i32) as u8;
+                                                        }
+                                                    };
+                                                    let vec17 = (messages13).into_boxed_slice();
+                                                    let ptr17 = vec17.as_ptr().cast::<u8>();
+                                                    let len17 = vec17.len();
+                                                    ::core::mem::forget(vec17);
+                                                    *base.add(76).cast::<usize>() = len17;
+                                                    *base.add(72).cast::<*mut u8>() =
+                                                        ptr17.cast_mut();
+                                                    let vec18 = (data13).into_boxed_slice();
+                                                    let ptr18 = vec18.as_ptr().cast::<u8>();
+                                                    let len18 = vec18.len();
+                                                    ::core::mem::forget(vec18);
+                                                    *base.add(84).cast::<usize>() = len18;
+                                                    *base.add(80).cast::<*mut u8>() =
+                                                        ptr18.cast_mut();
+                                                }
+                                            }
+                                        }
+                                        None => {
+                                            *base.add(8).cast::<u8>() = (0i32) as u8;
+                                        }
+                                    };
+                                    *base.add(88).cast::<i64>() = _rt::as_i64(cursor3);
+                                }
+                                Err(e) => {
+                                    *base.add(0).cast::<u8>() = (1i32) as u8;
                                     match e {
-                                        ParseYield::Message(e) => {
-                                            *ptr2.add(16).cast::<u8>() = (0i32) as u8;
-                                            let vec4 = (e.into_bytes()).into_boxed_slice();
-                                            let ptr4 = vec4.as_ptr().cast::<u8>();
-                                            let len4 = vec4.len();
-                                            ::core::mem::forget(vec4);
-                                            *ptr2.add(28).cast::<usize>() = len4;
-                                            *ptr2.add(24).cast::<*mut u8>() = ptr4.cast_mut();
+                                        Error::Parse(e) => {
+                                            *base.add(8).cast::<u8>() = (0i32) as u8;
+                                            let vec19 = (e.into_bytes()).into_boxed_slice();
+                                            let ptr19 = vec19.as_ptr().cast::<u8>();
+                                            let len19 = vec19.len();
+                                            ::core::mem::forget(vec19);
+                                            *base.add(16).cast::<usize>() = len19;
+                                            *base.add(12).cast::<*mut u8>() = ptr19.cast_mut();
                                         }
-                                        ParseYield::Attachment(e) => {
-                                            *ptr2.add(16).cast::<u8>() = (1i32) as u8;
-                                            let Attachment {
-                                                name: name5,
-                                                size: size5,
-                                                created_date: created_date5,
-                                                modified_date: modified_date5,
-                                                messages: messages5,
-                                                data: data5,
-                                            } = e;
-                                            let vec6 = (name5.into_bytes()).into_boxed_slice();
-                                            let ptr6 = vec6.as_ptr().cast::<u8>();
-                                            let len6 = vec6.len();
-                                            ::core::mem::forget(vec6);
-                                            *ptr2.add(28).cast::<usize>() = len6;
-                                            *ptr2.add(24).cast::<*mut u8>() = ptr6.cast_mut();
-                                            *ptr2.add(32).cast::<i64>() = _rt::as_i64(size5);
-                                            match created_date5 {
-                                                Some(e) => {
-                                                    *ptr2.add(40).cast::<u8>() = (1i32) as u8;
-                                                    let vec7 = (e.into_bytes()).into_boxed_slice();
-                                                    let ptr7 = vec7.as_ptr().cast::<u8>();
-                                                    let len7 = vec7.len();
-                                                    ::core::mem::forget(vec7);
-                                                    *ptr2.add(48).cast::<usize>() = len7;
-                                                    *ptr2.add(44).cast::<*mut u8>() =
-                                                        ptr7.cast_mut();
-                                                }
-                                                None => {
-                                                    *ptr2.add(40).cast::<u8>() = (0i32) as u8;
-                                                }
-                                            };
-                                            match modified_date5 {
-                                                Some(e) => {
-                                                    *ptr2.add(52).cast::<u8>() = (1i32) as u8;
-                                                    let vec8 = (e.into_bytes()).into_boxed_slice();
-                                                    let ptr8 = vec8.as_ptr().cast::<u8>();
-                                                    let len8 = vec8.len();
-                                                    ::core::mem::forget(vec8);
-                                                    *ptr2.add(60).cast::<usize>() = len8;
-                                                    *ptr2.add(56).cast::<*mut u8>() =
-                                                        ptr8.cast_mut();
-                                                }
-                                                None => {
-                                                    *ptr2.add(52).cast::<u8>() = (0i32) as u8;
-                                                }
-                                            };
-                                            let vec9 = (messages5).into_boxed_slice();
-                                            let ptr9 = vec9.as_ptr().cast::<u8>();
-                                            let len9 = vec9.len();
-                                            ::core::mem::forget(vec9);
-                                            *ptr2.add(68).cast::<usize>() = len9;
-                                            *ptr2.add(64).cast::<*mut u8>() = ptr9.cast_mut();
-                                            let vec10 = (data5).into_boxed_slice();
-                                            let ptr10 = vec10.as_ptr().cast::<u8>();
-                                            let len10 = vec10.len();
-                                            ::core::mem::forget(vec10);
-                                            *ptr2.add(76).cast::<usize>() = len10;
-                                            *ptr2.add(72).cast::<*mut u8>() = ptr10.cast_mut();
+                                        Error::Incomplete => {
+                                            *base.add(8).cast::<u8>() = (1i32) as u8;
                                         }
-                                        ParseYield::MessageAndAttachment(e) => {
-                                            *ptr2.add(16).cast::<u8>() = (2i32) as u8;
-                                            let (t11_0, t11_1) = e;
-                                            let vec12 = (t11_0.into_bytes()).into_boxed_slice();
-                                            let ptr12 = vec12.as_ptr().cast::<u8>();
-                                            let len12 = vec12.len();
-                                            ::core::mem::forget(vec12);
-                                            *ptr2.add(28).cast::<usize>() = len12;
-                                            *ptr2.add(24).cast::<*mut u8>() = ptr12.cast_mut();
-                                            let Attachment {
-                                                name: name13,
-                                                size: size13,
-                                                created_date: created_date13,
-                                                modified_date: modified_date13,
-                                                messages: messages13,
-                                                data: data13,
-                                            } = t11_1;
-                                            let vec14 = (name13.into_bytes()).into_boxed_slice();
-                                            let ptr14 = vec14.as_ptr().cast::<u8>();
-                                            let len14 = vec14.len();
-                                            ::core::mem::forget(vec14);
-                                            *ptr2.add(36).cast::<usize>() = len14;
-                                            *ptr2.add(32).cast::<*mut u8>() = ptr14.cast_mut();
-                                            *ptr2.add(40).cast::<i64>() = _rt::as_i64(size13);
-                                            match created_date13 {
-                                                Some(e) => {
-                                                    *ptr2.add(48).cast::<u8>() = (1i32) as u8;
-                                                    let vec15 = (e.into_bytes()).into_boxed_slice();
-                                                    let ptr15 = vec15.as_ptr().cast::<u8>();
-                                                    let len15 = vec15.len();
-                                                    ::core::mem::forget(vec15);
-                                                    *ptr2.add(56).cast::<usize>() = len15;
-                                                    *ptr2.add(52).cast::<*mut u8>() =
-                                                        ptr15.cast_mut();
-                                                }
-                                                None => {
-                                                    *ptr2.add(48).cast::<u8>() = (0i32) as u8;
-                                                }
-                                            };
-                                            match modified_date13 {
-                                                Some(e) => {
-                                                    *ptr2.add(60).cast::<u8>() = (1i32) as u8;
-                                                    let vec16 = (e.into_bytes()).into_boxed_slice();
-                                                    let ptr16 = vec16.as_ptr().cast::<u8>();
-                                                    let len16 = vec16.len();
-                                                    ::core::mem::forget(vec16);
-                                                    *ptr2.add(68).cast::<usize>() = len16;
-                                                    *ptr2.add(64).cast::<*mut u8>() =
-                                                        ptr16.cast_mut();
-                                                }
-                                                None => {
-                                                    *ptr2.add(60).cast::<u8>() = (0i32) as u8;
-                                                }
-                                            };
-                                            let vec17 = (messages13).into_boxed_slice();
-                                            let ptr17 = vec17.as_ptr().cast::<u8>();
-                                            let len17 = vec17.len();
-                                            ::core::mem::forget(vec17);
-                                            *ptr2.add(76).cast::<usize>() = len17;
-                                            *ptr2.add(72).cast::<*mut u8>() = ptr17.cast_mut();
-                                            let vec18 = (data13).into_boxed_slice();
-                                            let ptr18 = vec18.as_ptr().cast::<u8>();
-                                            let len18 = vec18.len();
-                                            ::core::mem::forget(vec18);
-                                            *ptr2.add(84).cast::<usize>() = len18;
-                                            *ptr2.add(80).cast::<*mut u8>() = ptr18.cast_mut();
+                                        Error::Eof => {
+                                            *base.add(8).cast::<u8>() = (2i32) as u8;
                                         }
                                     }
                                 }
-                                None => {
-                                    *ptr2.add(8).cast::<u8>() = (0i32) as u8;
-                                }
                             };
-                            *ptr2.add(88).cast::<i64>() = _rt::as_i64(cursor3);
                         }
-                        Err(e) => {
-                            *ptr2.add(0).cast::<u8>() = (1i32) as u8;
-                            match e {
-                                Error::Parse(e) => {
-                                    *ptr2.add(8).cast::<u8>() = (0i32) as u8;
-                                    let vec19 = (e.into_bytes()).into_boxed_slice();
-                                    let ptr19 = vec19.as_ptr().cast::<u8>();
-                                    let len19 = vec19.len();
-                                    ::core::mem::forget(vec19);
-                                    *ptr2.add(16).cast::<usize>() = len19;
-                                    *ptr2.add(12).cast::<*mut u8>() = ptr19.cast_mut();
-                                }
-                                Error::Incomplete => {
-                                    *ptr2.add(8).cast::<u8>() = (1i32) as u8;
-                                }
-                                Error::Eof => {
-                                    *ptr2.add(8).cast::<u8>() = (2i32) as u8;
-                                }
-                            }
-                        }
-                    };
+                    }
+                    *ptr2.add(4).cast::<usize>() = len20;
+                    *ptr2.add(0).cast::<*mut u8>() = result20;
                     ptr2
                 }
                 #[doc(hidden)]
                 #[allow(non_snake_case)]
                 pub unsafe fn __post_return_method_parser_parse<T: GuestParser>(arg0: *mut u8) {
-                    let l0 = i32::from(*arg0.add(0).cast::<u8>());
-                    match l0 {
-                        0 => {
-                            let l1 = i32::from(*arg0.add(8).cast::<u8>());
-                            match l1 {
-                                0 => (),
-                                _ => {
-                                    let l2 = i32::from(*arg0.add(16).cast::<u8>());
-                                    match l2 {
-                                        0 => {
-                                            let l3 = *arg0.add(24).cast::<*mut u8>();
-                                            let l4 = *arg0.add(28).cast::<usize>();
-                                            _rt::cabi_dealloc(l3, l4, 1);
-                                        }
-                                        1 => {
-                                            let l5 = *arg0.add(24).cast::<*mut u8>();
-                                            let l6 = *arg0.add(28).cast::<usize>();
-                                            _rt::cabi_dealloc(l5, l6, 1);
-                                            let l7 = i32::from(*arg0.add(40).cast::<u8>());
-                                            match l7 {
-                                                0 => (),
-                                                _ => {
-                                                    let l8 = *arg0.add(44).cast::<*mut u8>();
-                                                    let l9 = *arg0.add(48).cast::<usize>();
-                                                    _rt::cabi_dealloc(l8, l9, 1);
-                                                }
-                                            }
-                                            let l10 = i32::from(*arg0.add(52).cast::<u8>());
-                                            match l10 {
-                                                0 => (),
-                                                _ => {
-                                                    let l11 = *arg0.add(56).cast::<*mut u8>();
-                                                    let l12 = *arg0.add(60).cast::<usize>();
-                                                    _rt::cabi_dealloc(l11, l12, 1);
-                                                }
-                                            }
-                                            let l13 = *arg0.add(64).cast::<*mut u8>();
-                                            let l14 = *arg0.add(68).cast::<usize>();
-                                            let base15 = l13;
-                                            let len15 = l14;
-                                            _rt::cabi_dealloc(base15, len15 * 8, 8);
-                                            let l16 = *arg0.add(72).cast::<*mut u8>();
-                                            let l17 = *arg0.add(76).cast::<usize>();
-                                            let base18 = l16;
-                                            let len18 = l17;
-                                            _rt::cabi_dealloc(base18, len18 * 1, 1);
-                                        }
+                    let l38 = *arg0.add(0).cast::<*mut u8>();
+                    let l39 = *arg0.add(4).cast::<usize>();
+                    let base40 = l38;
+                    let len40 = l39;
+                    for i in 0..len40 {
+                        let base = base40.add(i * 96);
+                        {
+                            let l0 = i32::from(*base.add(0).cast::<u8>());
+                            match l0 {
+                                0 => {
+                                    let l1 = i32::from(*base.add(8).cast::<u8>());
+                                    match l1 {
+                                        0 => (),
                                         _ => {
-                                            let l19 = *arg0.add(24).cast::<*mut u8>();
-                                            let l20 = *arg0.add(28).cast::<usize>();
-                                            _rt::cabi_dealloc(l19, l20, 1);
-                                            let l21 = *arg0.add(32).cast::<*mut u8>();
-                                            let l22 = *arg0.add(36).cast::<usize>();
-                                            _rt::cabi_dealloc(l21, l22, 1);
-                                            let l23 = i32::from(*arg0.add(48).cast::<u8>());
-                                            match l23 {
-                                                0 => (),
+                                            let l2 = i32::from(*base.add(16).cast::<u8>());
+                                            match l2 {
+                                                0 => {
+                                                    let l3 = *base.add(24).cast::<*mut u8>();
+                                                    let l4 = *base.add(28).cast::<usize>();
+                                                    _rt::cabi_dealloc(l3, l4, 1);
+                                                }
+                                                1 => {
+                                                    let l5 = *base.add(24).cast::<*mut u8>();
+                                                    let l6 = *base.add(28).cast::<usize>();
+                                                    _rt::cabi_dealloc(l5, l6, 1);
+                                                    let l7 = i32::from(*base.add(40).cast::<u8>());
+                                                    match l7 {
+                                                        0 => (),
+                                                        _ => {
+                                                            let l8 =
+                                                                *base.add(44).cast::<*mut u8>();
+                                                            let l9 = *base.add(48).cast::<usize>();
+                                                            _rt::cabi_dealloc(l8, l9, 1);
+                                                        }
+                                                    }
+                                                    let l10 = i32::from(*base.add(52).cast::<u8>());
+                                                    match l10 {
+                                                        0 => (),
+                                                        _ => {
+                                                            let l11 =
+                                                                *base.add(56).cast::<*mut u8>();
+                                                            let l12 = *base.add(60).cast::<usize>();
+                                                            _rt::cabi_dealloc(l11, l12, 1);
+                                                        }
+                                                    }
+                                                    let l13 = *base.add(64).cast::<*mut u8>();
+                                                    let l14 = *base.add(68).cast::<usize>();
+                                                    let base15 = l13;
+                                                    let len15 = l14;
+                                                    _rt::cabi_dealloc(base15, len15 * 8, 8);
+                                                    let l16 = *base.add(72).cast::<*mut u8>();
+                                                    let l17 = *base.add(76).cast::<usize>();
+                                                    let base18 = l16;
+                                                    let len18 = l17;
+                                                    _rt::cabi_dealloc(base18, len18 * 1, 1);
+                                                }
                                                 _ => {
-                                                    let l24 = *arg0.add(52).cast::<*mut u8>();
-                                                    let l25 = *arg0.add(56).cast::<usize>();
-                                                    _rt::cabi_dealloc(l24, l25, 1);
+                                                    let l19 = *base.add(24).cast::<*mut u8>();
+                                                    let l20 = *base.add(28).cast::<usize>();
+                                                    _rt::cabi_dealloc(l19, l20, 1);
+                                                    let l21 = *base.add(32).cast::<*mut u8>();
+                                                    let l22 = *base.add(36).cast::<usize>();
+                                                    _rt::cabi_dealloc(l21, l22, 1);
+                                                    let l23 = i32::from(*base.add(48).cast::<u8>());
+                                                    match l23 {
+                                                        0 => (),
+                                                        _ => {
+                                                            let l24 =
+                                                                *base.add(52).cast::<*mut u8>();
+                                                            let l25 = *base.add(56).cast::<usize>();
+                                                            _rt::cabi_dealloc(l24, l25, 1);
+                                                        }
+                                                    }
+                                                    let l26 = i32::from(*base.add(60).cast::<u8>());
+                                                    match l26 {
+                                                        0 => (),
+                                                        _ => {
+                                                            let l27 =
+                                                                *base.add(64).cast::<*mut u8>();
+                                                            let l28 = *base.add(68).cast::<usize>();
+                                                            _rt::cabi_dealloc(l27, l28, 1);
+                                                        }
+                                                    }
+                                                    let l29 = *base.add(72).cast::<*mut u8>();
+                                                    let l30 = *base.add(76).cast::<usize>();
+                                                    let base31 = l29;
+                                                    let len31 = l30;
+                                                    _rt::cabi_dealloc(base31, len31 * 8, 8);
+                                                    let l32 = *base.add(80).cast::<*mut u8>();
+                                                    let l33 = *base.add(84).cast::<usize>();
+                                                    let base34 = l32;
+                                                    let len34 = l33;
+                                                    _rt::cabi_dealloc(base34, len34 * 1, 1);
                                                 }
                                             }
-                                            let l26 = i32::from(*arg0.add(60).cast::<u8>());
-                                            match l26 {
-                                                0 => (),
-                                                _ => {
-                                                    let l27 = *arg0.add(64).cast::<*mut u8>();
-                                                    let l28 = *arg0.add(68).cast::<usize>();
-                                                    _rt::cabi_dealloc(l27, l28, 1);
-                                                }
-                                            }
-                                            let l29 = *arg0.add(72).cast::<*mut u8>();
-                                            let l30 = *arg0.add(76).cast::<usize>();
-                                            let base31 = l29;
-                                            let len31 = l30;
-                                            _rt::cabi_dealloc(base31, len31 * 8, 8);
-                                            let l32 = *arg0.add(80).cast::<*mut u8>();
-                                            let l33 = *arg0.add(84).cast::<usize>();
-                                            let base34 = l32;
-                                            let len34 = l33;
-                                            _rt::cabi_dealloc(base34, len34 * 1, 1);
                                         }
+                                    }
+                                }
+                                _ => {
+                                    let l35 = i32::from(*base.add(8).cast::<u8>());
+                                    match l35 {
+                                        0 => {
+                                            let l36 = *base.add(12).cast::<*mut u8>();
+                                            let l37 = *base.add(16).cast::<usize>();
+                                            _rt::cabi_dealloc(l36, l37, 1);
+                                        }
+                                        1 => (),
+                                        _ => (),
                                     }
                                 }
                             }
                         }
-                        _ => {
-                            let l35 = i32::from(*arg0.add(8).cast::<u8>());
-                            match l35 {
-                                0 => {
-                                    let l36 = *arg0.add(12).cast::<*mut u8>();
-                                    let l37 = *arg0.add(16).cast::<usize>();
-                                    _rt::cabi_dealloc(l36, l37, 1);
-                                }
-                                1 => (),
-                                _ => (),
-                            }
-                        }
                     }
+                    _rt::cabi_dealloc(base40, len40 * 96, 8);
                 }
                 pub trait Guest {
                     type Parser: GuestParser;
@@ -601,44 +655,44 @@ pub mod exports {
                         &self,
                         data: _rt::Vec<u8>,
                         timestamp: Option<u64>,
-                    ) -> Result<ParseReturn, Error>;
+                    ) -> _rt::Vec<Result<ParseReturn, Error>>;
                 }
                 #[doc(hidden)]
 
                 macro_rules! __export_host_parse_parsing_cabi{
-      ($ty:ident with_types_in $($path_to_types:tt)*) => (const _: () = {
+        ($ty:ident with_types_in $($path_to_types:tt)*) => (const _: () = {
 
-        #[export_name = "host:parse/parsing#[constructor]parser"]
-        unsafe extern "C" fn export_constructor_parser() -> i32 {
-          $($path_to_types)*::_export_constructor_parser_cabi::<<$ty as $($path_to_types)*::Guest>::Parser>()
-        }
-        #[export_name = "host:parse/parsing#[method]parser.parse"]
-        unsafe extern "C" fn export_method_parser_parse(arg0: *mut u8,arg1: *mut u8,arg2: usize,arg3: i32,arg4: i64,) -> *mut u8 {
-          $($path_to_types)*::_export_method_parser_parse_cabi::<<$ty as $($path_to_types)*::Guest>::Parser>(arg0, arg1, arg2, arg3, arg4)
-        }
-        #[export_name = "cabi_post_host:parse/parsing#[method]parser.parse"]
-        unsafe extern "C" fn _post_return_method_parser_parse(arg0: *mut u8,) {
-          $($path_to_types)*::__post_return_method_parser_parse::<<$ty as $($path_to_types)*::Guest>::Parser>(arg0)
-        }
-
-        const _: () = {
-          #[doc(hidden)]
-          #[export_name = "host:parse/parsing#[dtor]parser"]
-          #[allow(non_snake_case)]
-          unsafe extern "C" fn dtor(rep: *mut u8) {
-            $($path_to_types)*::Parser::dtor::<
-            <$ty as $($path_to_types)*::Guest>::Parser
-            >(rep)
+          #[export_name = "host:parse/parsing#[constructor]parser"]
+          unsafe extern "C" fn export_constructor_parser() -> i32 {
+            $($path_to_types)*::_export_constructor_parser_cabi::<<$ty as $($path_to_types)*::Guest>::Parser>()
           }
-        };
+          #[export_name = "host:parse/parsing#[method]parser.parse"]
+          unsafe extern "C" fn export_method_parser_parse(arg0: *mut u8,arg1: *mut u8,arg2: usize,arg3: i32,arg4: i64,) -> *mut u8 {
+            $($path_to_types)*::_export_method_parser_parse_cabi::<<$ty as $($path_to_types)*::Guest>::Parser>(arg0, arg1, arg2, arg3, arg4)
+          }
+          #[export_name = "cabi_post_host:parse/parsing#[method]parser.parse"]
+          unsafe extern "C" fn _post_return_method_parser_parse(arg0: *mut u8,) {
+            $($path_to_types)*::__post_return_method_parser_parse::<<$ty as $($path_to_types)*::Guest>::Parser>(arg0)
+          }
 
-      };);
-    }
+          const _: () = {
+            #[doc(hidden)]
+            #[export_name = "host:parse/parsing#[dtor]parser"]
+            #[allow(non_snake_case)]
+            unsafe extern "C" fn dtor(rep: *mut u8) {
+              $($path_to_types)*::Parser::dtor::<
+              <$ty as $($path_to_types)*::Guest>::Parser
+              >(rep)
+            }
+          };
+
+        };);
+      }
                 #[doc(hidden)]
                 pub(crate) use __export_host_parse_parsing_cabi;
-                #[repr(align(8))]
-                struct _RetArea([::core::mem::MaybeUninit<u8>; 96]);
-                static mut _RET_AREA: _RetArea = _RetArea([::core::mem::MaybeUninit::uninit(); 96]);
+                #[repr(align(4))]
+                struct _RetArea([::core::mem::MaybeUninit<u8>; 8]);
+                static mut _RET_AREA: _RetArea = _RetArea([::core::mem::MaybeUninit::uninit(); 8]);
             }
         }
     }
@@ -781,6 +835,7 @@ mod _rt {
             self as i64
         }
     }
+    pub use alloc_crate::alloc;
     pub unsafe fn cabi_dealloc(ptr: *mut u8, size: usize, align: usize) {
         if size == 0 {
             return;
@@ -789,7 +844,6 @@ mod _rt {
         alloc::dealloc(ptr as *mut u8, layout);
     }
     extern crate alloc as alloc_crate;
-    pub use alloc_crate::alloc;
 }
 
 /// Generates `#[no_mangle]` functions to export the specified type as the
@@ -823,19 +877,19 @@ pub(crate) use __export_parse_impl as export;
 #[cfg(target_arch = "wasm32")]
 #[link_section = "component-type:wit-bindgen:0.24.0:parse:encoded world"]
 #[doc(hidden)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 527] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\x93\x03\x01A\x02\x01\
-A\x02\x01B\x16\x01ks\x01pw\x01p}\x01r\x06\x04names\x04sizew\x0ccreated-date\0\x0d\
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 530] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\x96\x03\x01A\x02\x01\
+A\x02\x01B\x17\x01ks\x01pw\x01p}\x01r\x06\x04names\x04sizew\x0ccreated-date\0\x0d\
 modified-date\0\x08messages\x01\x04data\x02\x04\0\x0aattachment\x03\0\x03\x01o\x02\
 s\x04\x01q\x03\x07message\x01s\0\x0aattachment\x01\x04\0\x16message-and-attachme\
 nt\x01\x05\0\x04\0\x0bparse-yield\x03\0\x06\x01k\x07\x01r\x02\x05value\x08\x06cu\
 rsorw\x04\0\x0cparse-return\x03\0\x09\x01q\x03\x05parse\x01s\0\x0aincomplete\0\0\
 \x03eof\0\0\x04\0\x05error\x03\0\x0b\x04\0\x06parser\x03\x01\x01i\x0d\x01@\0\0\x0e\
-\x04\0\x13[constructor]parser\x01\x0f\x01h\x0d\x01kw\x01j\x01\x0a\x01\x0c\x01@\x03\
-\x04self\x10\x04data\x02\x09timestamp\x11\0\x12\x04\0\x14[method]parser.parse\x01\
-\x13\x04\x01\x12host:parse/parsing\x05\0\x04\x01\x10host:parse/parse\x04\0\x0b\x0b\
-\x01\0\x05parse\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\
-\x070.202.0\x10wit-bindgen-rust\x060.24.0";
+\x04\0\x13[constructor]parser\x01\x0f\x01h\x0d\x01kw\x01j\x01\x0a\x01\x0c\x01p\x12\
+\x01@\x03\x04self\x10\x04data\x02\x09timestamp\x11\0\x13\x04\0\x14[method]parser\
+.parse\x01\x14\x04\x01\x12host:parse/parsing\x05\0\x04\x01\x10host:parse/parse\x04\
+\0\x0b\x0b\x01\0\x05parse\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit\
+-component\x070.202.0\x10wit-bindgen-rust\x060.24.0";
 
 #[inline(never)]
 #[doc(hidden)]

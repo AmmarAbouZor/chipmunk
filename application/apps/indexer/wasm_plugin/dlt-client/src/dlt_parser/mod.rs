@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::{cell::RefCell, ops::DerefMut};
 
 use parsers::{dlt::DltParser, Parser};
 
@@ -10,18 +10,14 @@ pub struct WasiDltParser {
     parser: RefCell<DltParser<'static>>,
 }
 
-impl GuestParser for WasiDltParser {
-    fn new() -> Self {
-        let mut parser = DltParser::default();
-        parser.with_storage_header = true;
-
-        Self {
-            parser: RefCell::new(parser),
-        }
-    }
-
-    fn parse(&self, data: Vec<u8>, timestamp: Option<u64>) -> Result<ParseReturn, Error> {
-        match self.parser.borrow_mut().parse(&data, timestamp) {
+impl WasiDltParser {
+    // Performe the normal parsing process
+    fn parse_intern(
+        parser: &mut DltParser<'static>,
+        data: &[u8],
+        timestamp: Option<u64>,
+    ) -> Result<ParseReturn, Error> {
+        match parser.parse(data, timestamp) {
             Ok((remain, opt)) => {
                 let offset = (data.len() - remain.len()) as u64;
                 let ret_val = match opt {
@@ -45,6 +41,35 @@ impl GuestParser for WasiDltParser {
                 })
             }
             Err(err) => Err(err.into()),
+        }
+    }
+}
+
+impl GuestParser for WasiDltParser {
+    fn new() -> Self {
+        let mut parser = DltParser::default();
+        parser.with_storage_header = true;
+
+        Self {
+            parser: RefCell::new(parser),
+        }
+    }
+
+    fn parse(&self, data: Vec<u8>, timestamp: Option<u64>) -> Vec<Result<ParseReturn, Error>> {
+        let mut results = Vec::new();
+        let mut slice = &data[0..];
+        let mut parser = self.parser.borrow_mut();
+        loop {
+            match Self::parse_intern(parser.deref_mut(), slice, timestamp) {
+                Ok(res) => {
+                    slice = &slice[res.cursor as usize..];
+                    results.push(Ok(res));
+                }
+                Err(err) => {
+                    results.push(Err(err));
+                    return results;
+                }
+            }
         }
     }
 }
