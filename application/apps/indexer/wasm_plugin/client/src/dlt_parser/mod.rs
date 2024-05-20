@@ -4,9 +4,9 @@ mod ft_scanner;
 
 use std::{cell::RefCell, ops::DerefMut};
 
+use crate::exports::host::parse::client::{Error, GuestParser, ParseReturn, Results};
+use crate::host::parse::parsing::ParseYield;
 use dlt_core::{dlt, parse::dlt_message};
-
-use crate::exports::host::parse::parsing::{self, Error, GuestParser, ParseReturn, ParseYield};
 
 use self::{formattable_msg::FormattableMessage, ft_scanner::FtScanner};
 
@@ -21,7 +21,7 @@ impl DltParser {
         ft_scanner: &mut FtScanner,
         data: &[u8],
         timestamp: Option<u64>,
-    ) -> Result<ParseReturn, parsing::Error> {
+    ) -> Result<ParseReturn, Error> {
         match dlt_message(&data, None, with_storage_header)
             .map_err(|e| Error::Parse(format!("{e}")))?
         {
@@ -74,11 +74,54 @@ impl GuestParser for DltParser {
         }
     }
 
-    fn parse(
-        &self,
-        data: Vec<u8>,
-        timestamp: Option<u64>,
-    ) -> Vec<Result<ParseReturn, parsing::Error>> {
+    fn parse_res(&self, data: Vec<u8>, timestamp: Option<u64>, results: &Results) {
+        let mut slice = &data[0..];
+        let mut ft_scanner = self.ft_scanner.borrow_mut();
+        loop {
+            match Self::parse_intern(
+                self.with_storage_header,
+                ft_scanner.deref_mut(),
+                slice,
+                timestamp,
+            ) {
+                Ok(res) => {
+                    slice = &slice[res.cursor as usize..];
+                    results.add(Ok(&res));
+                }
+                Err(err) => {
+                    results.add(Err(&err));
+                    return;
+                }
+            }
+        }
+    }
+
+    fn parse_res_rng(&self, data: Vec<u8>, timestamp: Option<u64>, results: &Results) {
+        let mut items = Vec::new();
+        let mut slice = &data[0..];
+        let mut ft_scanner = self.ft_scanner.borrow_mut();
+        loop {
+            match Self::parse_intern(
+                self.with_storage_header,
+                ft_scanner.deref_mut(),
+                slice,
+                timestamp,
+            ) {
+                Ok(res) => {
+                    slice = &slice[res.cursor as usize..];
+                    items.push(Ok(res));
+                }
+                Err(err) => {
+                    items.push(Err(err));
+                    break;
+                }
+            }
+        }
+
+        results.add_range(&items);
+    }
+
+    fn parse(&self, data: Vec<u8>, timestamp: Option<u64>) -> Vec<Result<ParseReturn, Error>> {
         let mut results = Vec::new();
         let mut slice = &data[0..];
         let mut ft_scanner = self.ft_scanner.borrow_mut();

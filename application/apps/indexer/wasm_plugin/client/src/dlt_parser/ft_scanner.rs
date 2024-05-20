@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use dlt_core::dlt::Message;
 
-use crate::exports::host::parse::parsing::Attachment;
+use crate::host::parse::parsing::Attachment;
 
 use super::ft_message_parser::{FtMessage, FtMessageParser};
 

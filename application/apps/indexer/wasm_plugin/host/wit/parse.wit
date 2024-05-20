@@ -29,12 +29,24 @@ interface parsing {
     eof,
   }
 
+  resource results {
+      add: func(item: result<parse-return, error>);
+      add-range: func(items: list<result<parse-return, error>>);
+  }
+}
+
+interface client {
+  use parsing.{attachment, parse-yield, error, parse-return, results};
+
   resource parser {
     constructor();
     parse: func(data: list<u8>, timestamp: option<u64>) -> list<result<parse-return, error>>;
+    parse-res: func(data: list<u8>, timestamp: option<u64>, results: borrow<results>);
+    parse-res-rng: func(data: list<u8>, timestamp: option<u64>, results: borrow<results>);
   }
 }
 
 world parse {
-    export parsing;
+    use parsing.{attachment, parse-yield, error, parse-return, results};
+    export client;
 }

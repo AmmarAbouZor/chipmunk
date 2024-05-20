@@ -2,25 +2,76 @@ use std::{collections::VecDeque, path::Path, usize};
 
 use parsers::Parser;
 use wasmtime::{
-    component::{Component, Linker, ResourceAny},
+    component::{Component, Linker, Resource, ResourceAny},
     Config, Engine, Store,
 };
 use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiView};
 
 use crate::PluginParseMessage;
 
-use self::exports::host::parse::parsing::{Attachment, Error, ParseReturn, ParseYield};
+use self::{
+    exports::host::parse::client::{Error, ParseReturn},
+    host::parse::parsing::{Attachment, Host, HostResults, ParseYield},
+};
 
 type ParseResult = Result<ParseReturn, Error>;
 
 // This should be removed after prototyping
 // File path should be read from config
-const WASM_FILE_PATH: &str =
-    "application/apps/indexer/wasm_plugin/dlt-client/target/wasm32-wasi/release/dlt_client.wasm";
 // const WASM_FILE_PATH: &str =
-//     "application/apps/indexer/wasm_plugin/client/target/wasm32-wasi/release/client.wasm";
+//     "application/apps/indexer/wasm_plugin/dlt-client/target/wasm32-wasi/release/dlt_client.wasm";
+const WASM_FILE_PATH: &str =
+    "application/apps/indexer/wasm_plugin/client/target/wasm32-wasi/release/client.wasm";
 
-wasmtime::component::bindgen!();
+//TODO AAZ: Make sure we need ownership to be borrowing here
+wasmtime::component::bindgen!({
+    with: {
+        "host:parse/parsing/results": ResQueue,
+    },
+    ownership: Borrowing {
+        duplicate_if_necessary: false
+    },
+});
+
+impl HostResults for PluginState {
+    fn add(
+        &mut self,
+        queue: wasmtime::component::Resource<ResQueue>,
+        item: Result<ParseReturn, Error>,
+    ) -> wasmtime::Result<()> {
+        let queue = self
+            .table()
+            .get_mut(&queue)
+            .expect("Queue is added to resource table");
+        queue.queue.push_back(item);
+        Ok(())
+    }
+
+    fn add_range(
+        &mut self,
+        queue: wasmtime::component::Resource<ResQueue>,
+        items: Vec<Result<ParseReturn, Error>>,
+    ) -> wasmtime::Result<()> {
+        let queue = self
+            .table()
+            .get_mut(&queue)
+            .expect("Queue is added to resource table");
+        queue.queue = items.into();
+        Ok(())
+    }
+
+    fn drop(&mut self, rep: wasmtime::component::Resource<ResQueue>) -> wasmtime::Result<()> {
+        self.table.delete(rep).expect("Queue is in resource table");
+        Ok(())
+    }
+}
+
+impl Host for PluginState {}
+
+#[derive(Default)]
+pub struct ResQueue {
+    pub queue: VecDeque<ParseResult>,
+}
 
 struct PluginState {
     ctx: WasiCtx,
@@ -53,6 +104,7 @@ pub struct WasmParser {
     parse_translate: Parse,
     parser_res: ResourceAny,
     cache: VecDeque<ParseResult>,
+    queue_res: Resource<ResQueue>,
 }
 
 impl Drop for WasmParser {
@@ -64,6 +116,8 @@ impl Drop for WasmParser {
     }
 }
 
+// Suppress unused functions here while prototyping
+#[allow(unused)]
 impl WasmParser {
     //TODO: Read plugin config from file after prototyping phase
     pub fn create(_config_path: impl AsRef<Path>) -> anyhow::Result<Self> {
@@ -93,10 +147,14 @@ impl WasmParser {
         let mut linker = Linker::new(&engine);
         wasmtime_wasi::add_to_linker_sync(&mut linker)?;
 
+        self::host::parse::parsing::add_to_linker(&mut linker, |state| state);
+
         let ctx = WasiCtxBuilder::new().build();
         let table = ResourceTable::new();
 
         let mut store = Store::new(&engine, PluginState::new(ctx, table));
+
+        let queue_res = store.data_mut().table().push(ResQueue::default()).unwrap();
 
         let (parse_translate, _instance) = Parse::instantiate(&mut store, &component, &linker)?;
 
@@ -113,12 +171,11 @@ impl WasmParser {
             parse_translate,
             parser_res,
             cache: VecDeque::new(),
+            queue_res,
         })
     }
-}
 
-impl Parser<PluginParseMessage> for WasmParser {
-    fn parse<'a>(
+    fn parse_with_list<'a>(
         &mut self,
         input: &'a [u8],
         timestamp: Option<u64>,
@@ -158,6 +215,120 @@ impl Parser<PluginParseMessage> for WasmParser {
                 Err(err)
             }
         }
+    }
+
+    fn parse_with_res<'a>(
+        &mut self,
+        input: &'a [u8],
+        timestamp: Option<u64>,
+    ) -> Result<(&'a [u8], Option<parsers::ParseYield<PluginParseMessage>>), parsers::Error> {
+        let queue = self
+            .store
+            .data_mut()
+            .table()
+            .get_mut(&self.queue_res)
+            .unwrap();
+        let raw_res = match queue.queue.pop_front() {
+            // In case of errors we send the whole slice again. This could be optimized to reduce
+            // the calls to wasm
+            None | Some(Err(Error::Parse(_))) | Some(Err(Error::Incomplete)) => {
+                let results_res: Resource<ResQueue> = Resource::new_borrow(self.queue_res.rep());
+                self.parse_translate
+                    .interface0
+                    .parser()
+                    .call_parse_res(
+                        &mut self.store,
+                        self.parser_res,
+                        input,
+                        timestamp,
+                        results_res,
+                    )
+                    //TODO: Change this after implementing error definitions
+                    .map_err(|err| {
+                        println!("TODO AAZ: Early Error: {err}");
+                        parsers::Error::Parse(err.to_string())
+                    })?;
+                return self.parse_with_res(input, timestamp);
+            }
+            Some(res) => res,
+        };
+
+        match raw_res {
+            Ok(val) => {
+                let remain = &input[val.cursor as usize..];
+                let yld = val.value.map(|y| y.into_parsers_yield());
+
+                Ok((remain, yld))
+            }
+            Err(err) => {
+                let err = err.into_parsers_err();
+                // println!("TODO AAZ: Error: {err}");
+                Err(err)
+            }
+        }
+    }
+
+    fn parse_with_res_rng<'a>(
+        &mut self,
+        input: &'a [u8],
+        timestamp: Option<u64>,
+    ) -> Result<(&'a [u8], Option<parsers::ParseYield<PluginParseMessage>>), parsers::Error> {
+        let queue = self
+            .store
+            .data_mut()
+            .table()
+            .get_mut(&self.queue_res)
+            .unwrap();
+        let raw_res = match queue.queue.pop_front() {
+            // In case of errors we send the whole slice again. This could be optimized to reduce
+            // the calls to wasm
+            None | Some(Err(Error::Parse(_))) | Some(Err(Error::Incomplete)) => {
+                let results_res: Resource<ResQueue> = Resource::new_borrow(self.queue_res.rep());
+                self.parse_translate
+                    .interface0
+                    .parser()
+                    .call_parse_res_rng(
+                        &mut self.store,
+                        self.parser_res,
+                        input,
+                        timestamp,
+                        results_res,
+                    )
+                    //TODO: Change this after implementing error definitions
+                    .map_err(|err| {
+                        println!("TODO AAZ: Early Error: {err}");
+                        parsers::Error::Parse(err.to_string())
+                    })?;
+                return self.parse_with_res_rng(input, timestamp);
+            }
+            Some(res) => res,
+        };
+
+        match raw_res {
+            Ok(val) => {
+                let remain = &input[val.cursor as usize..];
+                let yld = val.value.map(|y| y.into_parsers_yield());
+
+                Ok((remain, yld))
+            }
+            Err(err) => {
+                let err = err.into_parsers_err();
+                // println!("TODO AAZ: Error: {err}");
+                Err(err)
+            }
+        }
+    }
+}
+
+impl Parser<PluginParseMessage> for WasmParser {
+    fn parse<'a>(
+        &mut self,
+        input: &'a [u8],
+        timestamp: Option<u64>,
+    ) -> Result<(&'a [u8], Option<parsers::ParseYield<PluginParseMessage>>), parsers::Error> {
+        // self.parse_with_list(input, timestamp)
+        // self.parse_with_res(input, timestamp)
+        self.parse_with_res_rng(input, timestamp)
     }
 }
 
