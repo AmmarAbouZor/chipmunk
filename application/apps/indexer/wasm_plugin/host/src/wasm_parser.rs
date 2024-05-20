@@ -7,7 +7,7 @@ use wasmtime::{
 };
 use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiView};
 
-use crate::PluginParseMessage;
+use crate::{ParseMethod, PluginParseMessage};
 
 use self::{
     exports::host::parse::client::{Error, ParseReturn},
@@ -105,6 +105,7 @@ pub struct WasmParser {
     parser_res: ResourceAny,
     cache: VecDeque<ParseResult>,
     queue_res: Resource<ResQueue>,
+    method: ParseMethod,
 }
 
 impl Drop for WasmParser {
@@ -120,7 +121,7 @@ impl Drop for WasmParser {
 #[allow(unused)]
 impl WasmParser {
     //TODO: Read plugin config from file after prototyping phase
-    pub fn create(_config_path: impl AsRef<Path>) -> anyhow::Result<Self> {
+    pub fn create(_config_path: impl AsRef<Path>, method: ParseMethod) -> anyhow::Result<Self> {
         // assume we are calling the function from indexer-cli
         let mut wasm_path = std::env::current_dir()?
             .join("../../../..")
@@ -172,9 +173,11 @@ impl WasmParser {
             parser_res,
             cache: VecDeque::new(),
             queue_res,
+            method,
         })
     }
 
+    #[inline]
     fn parse_with_list<'a>(
         &mut self,
         input: &'a [u8],
@@ -217,6 +220,7 @@ impl WasmParser {
         }
     }
 
+    #[inline]
     fn parse_with_res<'a>(
         &mut self,
         input: &'a [u8],
@@ -268,6 +272,7 @@ impl WasmParser {
         }
     }
 
+    #[inline]
     fn parse_with_res_rng<'a>(
         &mut self,
         input: &'a [u8],
@@ -326,9 +331,11 @@ impl Parser<PluginParseMessage> for WasmParser {
         input: &'a [u8],
         timestamp: Option<u64>,
     ) -> Result<(&'a [u8], Option<parsers::ParseYield<PluginParseMessage>>), parsers::Error> {
-        // self.parse_with_list(input, timestamp)
-        // self.parse_with_res(input, timestamp)
-        self.parse_with_res_rng(input, timestamp)
+        match self.method {
+            ParseMethod::ReturnVec => self.parse_with_list(input, timestamp),
+            ParseMethod::ResSingle => self.parse_with_res(input, timestamp),
+            ParseMethod::ResRange => self.parse_with_res_rng(input, timestamp),
+        }
     }
 }
 

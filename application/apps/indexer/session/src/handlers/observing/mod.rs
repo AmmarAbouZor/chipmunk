@@ -38,7 +38,7 @@ pub mod stream;
 
 pub const FLUSH_TIMEOUT_IN_MS: u128 = 500;
 
-pub const USE_WASM_DLT_ENV: &str = "USE_WASM_DLT";
+pub const USE_WASM_DLT_ENV: &str = "USE_WASM";
 
 pub async fn run_source<S: ByteSource>(
     operation_api: OperationAPI,
@@ -65,38 +65,51 @@ pub async fn run_source<S: ByteSource>(
             run_producer(operation_api, state, source_id, producer, rx_tail).await
         }
         ParserType::Dlt(settings) => {
-            if env::var(USE_WASM_DLT_ENV).is_ok() {
-                println!("------------------------------------------------------");
-                println!("----------------     WASM used      ------------------");
-                println!("------------------------------------------------------");
-                let dummy_path = PathBuf::from(".");
-                //TODO: Add new error type for the plugins
-                let wasm_parser = plugin_host::WasmParser::create(dummy_path).map_err(|err| {
-                    dbg!(&err);
-                    NativeError {
-                        kind: NativeErrorKind::Io,
-                        severity: Severity::ERROR,
-                        message: Some(err.to_string()),
-                    }
-                })?;
-                // println!("Wasm Parser Created");
+            match env::var(USE_WASM_DLT_ENV) {
+                Ok(var) => {
+                    println!("------------------------------------------------------");
+                    println!("----------------     WASM used      ------------------");
+                    println!("------------------------------------------------------");
+                    let method = match var.as_str() {
+                        "vec" => plugin_host::ParseMethod::ReturnVec,
+                        "res_s" => plugin_host::ParseMethod::ResSingle,
+                        "res_r" => plugin_host::ParseMethod::ResRange,
+                        invalid => unreachable!("Invalid WASM ENV var: {invalid}"),
+                    };
 
-                let producer = MessageProducer::new(wasm_parser, source, rx_sde);
-                // println!("Producer Created");
-                run_producer(operation_api, state, source_id, producer, rx_tail).await
-            } else {
-                println!("------------------------------------------------------");
-                println!("---------------     NATIVE used     ------------------");
-                println!("------------------------------------------------------");
-                let fmt_options = Some(FormatOptions::from(settings.tz.as_ref()));
-                let dlt_parser = DltParser::new(
-                    settings.filter_config.as_ref().map(|f| f.into()),
-                    settings.fibex_metadata.as_ref(),
-                    fmt_options.as_ref(),
-                    settings.with_storage_header,
-                );
-                let producer = MessageProducer::new(dlt_parser, source, rx_sde);
-                run_producer(operation_api, state, source_id, producer, rx_tail).await
+                    println!("Parse Mehtod: {method}");
+
+                    let dummy_path = PathBuf::from(".");
+                    //TODO: Add new error type for the plugins
+                    let wasm_parser =
+                        plugin_host::WasmParser::create(dummy_path, method).map_err(|err| {
+                            dbg!(&err);
+                            NativeError {
+                                kind: NativeErrorKind::Io,
+                                severity: Severity::ERROR,
+                                message: Some(err.to_string()),
+                            }
+                        })?;
+                    // println!("Wasm Parser Created");
+
+                    let producer = MessageProducer::new(wasm_parser, source, rx_sde);
+                    // println!("Producer Created");
+                    run_producer(operation_api, state, source_id, producer, rx_tail).await
+                }
+                Err(_) => {
+                    println!("------------------------------------------------------");
+                    println!("---------------     NATIVE used     ------------------");
+                    println!("------------------------------------------------------");
+                    let fmt_options = Some(FormatOptions::from(settings.tz.as_ref()));
+                    let dlt_parser = DltParser::new(
+                        settings.filter_config.as_ref().map(|f| f.into()),
+                        settings.fibex_metadata.as_ref(),
+                        fmt_options.as_ref(),
+                        settings.with_storage_header,
+                    );
+                    let producer = MessageProducer::new(dlt_parser, source, rx_sde);
+                    run_producer(operation_api, state, source_id, producer, rx_tail).await
+                }
             }
         }
     }
