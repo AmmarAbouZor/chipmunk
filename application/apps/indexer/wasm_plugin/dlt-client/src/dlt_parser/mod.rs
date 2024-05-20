@@ -2,9 +2,8 @@ use std::{cell::RefCell, ops::DerefMut};
 
 use parsers::{dlt::DltParser, Parser};
 
-use crate::exports::host::parse::parsing::{
-    Attachment, Error, GuestParser, ParseReturn, ParseYield,
-};
+use crate::exports::host::parse::client::{Error, GuestParser, ParseReturn, Results};
+use crate::host::parse::parsing::{Attachment, ParseYield};
 
 pub struct WasiDltParser {
     parser: RefCell<DltParser<'static>>,
@@ -71,6 +70,43 @@ impl GuestParser for WasiDltParser {
                 }
             }
         }
+    }
+
+    fn parse_res(&self, data: Vec<u8>, timestamp: Option<u64>, results: &Results) {
+        let mut slice = &data[0..];
+        let mut parser = self.parser.borrow_mut();
+        loop {
+            match Self::parse_intern(parser.deref_mut(), slice, timestamp) {
+                Ok(res) => {
+                    slice = &slice[res.cursor as usize..];
+                    results.add(Ok(&res));
+                }
+                Err(err) => {
+                    results.add(Err(&err));
+                    return;
+                }
+            }
+        }
+    }
+
+    fn parse_res_rng(&self, data: Vec<u8>, timestamp: Option<u64>, results: &Results) {
+        let mut items = Vec::new();
+        let mut slice = &data[0..];
+        let mut parser = self.parser.borrow_mut();
+        loop {
+            match Self::parse_intern(parser.deref_mut(), slice, timestamp) {
+                Ok(res) => {
+                    slice = &slice[res.cursor as usize..];
+                    items.push(Ok(res));
+                }
+                Err(err) => {
+                    items.push(Err(err));
+                    break;
+                }
+            }
+        }
+
+        results.add_range(&items);
     }
 }
 
