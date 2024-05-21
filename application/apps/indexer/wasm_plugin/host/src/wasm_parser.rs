@@ -25,6 +25,7 @@ const WASM_FILE_PATH: &str =
 
 //TODO AAZ: Make sure we need ownership to be borrowing here
 wasmtime::component::bindgen!({
+    world: "parse",
     with: {
         "host:parse/parsing/results": ResQueue,
     },
@@ -38,26 +39,24 @@ impl HostResults for PluginState {
         &mut self,
         queue: wasmtime::component::Resource<ResQueue>,
         item: Result<ParseReturn, Error>,
-    ) -> wasmtime::Result<()> {
+    ) {
         let queue = self
             .table()
             .get_mut(&queue)
             .expect("Queue is added to resource table");
         queue.queue.push_back(item);
-        Ok(())
     }
 
     fn add_range(
         &mut self,
         queue: wasmtime::component::Resource<ResQueue>,
         items: Vec<Result<ParseReturn, Error>>,
-    ) -> wasmtime::Result<()> {
+    ) {
         let queue = self
             .table()
             .get_mut(&queue)
             .expect("Queue is added to resource table");
         queue.queue = items.into();
-        Ok(())
     }
 
     fn drop(&mut self, rep: wasmtime::component::Resource<ResQueue>) -> wasmtime::Result<()> {
