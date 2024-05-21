@@ -1,5 +1,4 @@
-package host:parse;
-
+package host:indexer;
 
 interface parsing {
   record parse-return {
@@ -47,6 +46,28 @@ interface parse-client {
 }
 
 world parse {
-    use parsing.{attachment, parse-yield, error, parse-return, results};
-    export parse-client;
+  use parsing.{attachment, parse-yield, error, parse-return, results};
+  export parse-client;
+}
+
+interface sourcing {
+  variant source-error {
+    io(string),
+    other(string),
+    eof,
+  }
+}
+
+interface source-client {
+  use sourcing.{source-error};
+
+  resource byte-source{
+    constructor(config-path: string);
+    read: func(len: u64) -> result<list<u8>, source-error>;
+    reload: func() -> result<_, source-error>;
+  }
+}
+
+world source {
+  export source-client;
 }

@@ -1,0 +1,18 @@
+[workspace]
+
+[package]
+name = "bytesource"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+wit-bindgen = "0.25.0"
+wit-bindgen-rt = { version = "0.25.0", features = ["bitflags"] }
+
+[lib]
+crate-type = ["cdylib"]
+
+[package.metadata.component]
+package = "component:bytesource"
+
+[package.metadata.component.dependencies]

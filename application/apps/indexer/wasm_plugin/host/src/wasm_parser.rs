@@ -10,8 +10,8 @@ use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiView};
 use crate::{ParseMethod, PluginParseMessage};
 
 use self::{
-    exports::host::parse::parse_client::{Error, ParseReturn},
-    host::parse::parsing::{Attachment, Host, HostResults, ParseYield},
+    exports::host::indexer::parse_client::{Error, ParseReturn},
+    host::indexer::parsing::{Attachment, Host, HostResults, ParseYield},
 };
 
 type ParseResult = Result<ParseReturn, Error>;
@@ -27,7 +27,7 @@ const WASM_FILE_PATH: &str =
 wasmtime::component::bindgen!({
     world: "parse",
     with: {
-        "host:parse/parsing/results": ResQueue,
+        "host:indexer/parsing/results": ResQueue,
     },
     ownership: Borrowing {
         duplicate_if_necessary: false
@@ -147,7 +147,7 @@ impl WasmParser {
         let mut linker = Linker::new(&engine);
         wasmtime_wasi::add_to_linker_sync(&mut linker)?;
 
-        self::host::parse::parsing::add_to_linker(&mut linker, |state| state);
+        self::host::indexer::parsing::add_to_linker(&mut linker, |state| state);
 
         let ctx = WasiCtxBuilder::new().build();
         let table = ResourceTable::new();

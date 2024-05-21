@@ -2,8 +2,8 @@ use std::{cell::RefCell, ops::DerefMut};
 
 use parsers::{dlt::DltParser, Parser};
 
-use crate::exports::host::parse::parse_client::{Error, GuestParser, ParseReturn, Results};
-use crate::host::parse::parsing::{Attachment, ParseYield};
+use crate::exports::host::indexer::parse_client::{Error, GuestParser, ParseReturn, Results};
+use crate::host::indexer::parsing::{Attachment, ParseYield};
 
 pub struct WasiDltParser {
     parser: RefCell<DltParser<'static>>,

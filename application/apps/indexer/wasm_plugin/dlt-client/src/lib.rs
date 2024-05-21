@@ -1,11 +1,11 @@
 mod dlt_parser;
 
 use dlt_parser::WasiDltParser;
-use exports::host::parse::parse_client::Guest;
+use exports::host::indexer::parse_client::Guest;
 use wit_bindgen::generate;
 
 generate!({
-    path: "../host/wit/parse.wit",
+    path: "../host/wit/indexer.wit",
     world: "parse",
     //TODO AAZ: Activating borrowing gives better results with resource single values. But we can't
     // Use it use resource range method.
