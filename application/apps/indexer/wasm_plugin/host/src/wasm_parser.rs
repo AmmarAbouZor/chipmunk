@@ -10,7 +10,7 @@ use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiView};
 use crate::{ParseMethod, PluginParseMessage};
 
 use self::{
-    exports::host::parse::client::{Error, ParseReturn},
+    exports::host::parse::parse_client::{Error, ParseReturn},
     host::parse::parsing::{Attachment, Host, HostResults, ParseYield},
 };
 

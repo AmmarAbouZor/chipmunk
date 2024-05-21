@@ -4,7 +4,7 @@ mod ft_scanner;
 
 use std::{cell::RefCell, ops::DerefMut};
 
-use crate::exports::host::parse::client::{Error, GuestParser, ParseReturn, Results};
+use crate::exports::host::parse::parse_client::{Error, GuestParser, ParseReturn, Results};
 use crate::host::parse::parsing::ParseYield;
 use dlt_core::{dlt, parse::dlt_message};
 

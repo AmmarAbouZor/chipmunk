@@ -2,7 +2,7 @@ use std::{cell::RefCell, ops::DerefMut};
 
 use parsers::{dlt::DltParser, Parser};
 
-use crate::exports::host::parse::client::{Error, GuestParser, ParseReturn, Results};
+use crate::exports::host::parse::parse_client::{Error, GuestParser, ParseReturn, Results};
 use crate::host::parse::parsing::{Attachment, ParseYield};
 
 pub struct WasiDltParser {

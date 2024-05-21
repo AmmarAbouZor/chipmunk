@@ -1,7 +1,7 @@
 mod dlt_parser;
 
 use dlt_parser::DltParser;
-use exports::host::parse::client::Guest;
+use exports::host::parse::parse_client::Guest;
 use wit_bindgen::generate;
 
 generate!({

@@ -35,7 +35,7 @@ interface parsing {
   }
 }
 
-interface client {
+interface parse-client {
   use parsing.{attachment, parse-yield, error, parse-return, results};
 
   resource parser {
@@ -48,5 +48,5 @@ interface client {
 
 world parse {
     use parsing.{attachment, parse-yield, error, parse-return, results};
-    export client;
+    export parse-client;
 }
