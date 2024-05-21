@@ -5,9 +5,9 @@ use wasmtime::{
     component::{Component, Linker, Resource, ResourceAny},
     Config, Engine, Store,
 };
-use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiView};
+use wasmtime_wasi::{ResourceTable, WasiCtxBuilder, WasiView};
 
-use crate::{ParseMethod, PluginParseMessage};
+use crate::{GeneralState, ParseMethod, PluginParseMessage};
 
 use self::{
     exports::host::indexer::parse_client::{Error, ParseReturn},
@@ -34,7 +34,7 @@ wasmtime::component::bindgen!({
     },
 });
 
-impl HostResults for PluginState {
+impl HostResults for GeneralState {
     fn add(
         &mut self,
         queue: wasmtime::component::Resource<ResQueue>,
@@ -65,32 +65,11 @@ impl HostResults for PluginState {
     }
 }
 
-impl Host for PluginState {}
+impl Host for GeneralState {}
 
 #[derive(Default)]
 pub struct ResQueue {
     pub queue: VecDeque<ParseResult>,
-}
-
-struct PluginState {
-    ctx: WasiCtx,
-    table: ResourceTable,
-}
-
-impl PluginState {
-    fn new(ctx: WasiCtx, table: ResourceTable) -> Self {
-        Self { ctx, table }
-    }
-}
-
-impl WasiView for PluginState {
-    fn table(&mut self) -> &mut ResourceTable {
-        &mut self.table
-    }
-
-    fn ctx(&mut self) -> &mut WasiCtx {
-        &mut self.ctx
-    }
 }
 
 // Suppress unused fields here while prototyping
@@ -98,8 +77,8 @@ impl WasiView for PluginState {
 pub struct WasmParser {
     engine: Engine,
     component: Component,
-    linker: Linker<PluginState>,
-    store: Store<PluginState>,
+    linker: Linker<GeneralState>,
+    store: Store<GeneralState>,
     parse_translate: Parse,
     parser_res: ResourceAny,
     cache: VecDeque<ParseResult>,
@@ -152,7 +131,7 @@ impl WasmParser {
         let ctx = WasiCtxBuilder::new().build();
         let table = ResourceTable::new();
 
-        let mut store = Store::new(&engine, PluginState::new(ctx, table));
+        let mut store = Store::new(&engine, GeneralState::new(ctx, table));
 
         let queue_res = store.data_mut().table().push(ResQueue::default()).unwrap();
 

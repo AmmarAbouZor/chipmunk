@@ -63,6 +63,7 @@ interface source-client {
 
   resource byte-source{
     constructor(config-path: string);
+    init: func(file-name: string) -> result<_, source-error>;
     read: func(len: u64) -> result<list<u8>, source-error>;
     reload: func() -> result<_, source-error>;
   }

@@ -1,3 +1,4 @@
+mod wasm_bytesource;
 mod wasm_parser;
 
 use std::fmt::Display;
@@ -6,6 +7,7 @@ use parsers::LogMessage;
 use serde::Serialize;
 
 pub use wasm_parser::WasmParser;
+use wasmtime_wasi::{ResourceTable, WasiCtx, WasiView};
 
 /// Represents which method should be used with the parsing. This is used in the experimental phase  
 pub enum ParseMethod {
@@ -66,5 +68,26 @@ impl LogMessage for PluginParseMessage {
         let len = bytes.len();
         writer.write_all(bytes)?;
         Ok(len)
+    }
+}
+
+pub(crate) struct GeneralState {
+    pub ctx: WasiCtx,
+    pub table: ResourceTable,
+}
+
+impl GeneralState {
+    pub fn new(ctx: WasiCtx, table: ResourceTable) -> Self {
+        Self { ctx, table }
+    }
+}
+
+impl WasiView for GeneralState {
+    fn table(&mut self) -> &mut ResourceTable {
+        &mut self.table
+    }
+
+    fn ctx(&mut self) -> &mut WasiCtx {
+        &mut self.ctx
     }
 }
