@@ -32,6 +32,9 @@ wasmtime::component::bindgen!({
     ownership: Borrowing {
         duplicate_if_necessary: false
     },
+    async: {
+        only_imports: [],
+    },
 });
 
 impl HostResults for GeneralState {
@@ -89,7 +92,9 @@ pub struct WasmParser {
 impl Drop for WasmParser {
     fn drop(&mut self) {
         // It's required to call drop on the resource Parser instance manually
-        if let Err(err) = self.parser_res.resource_drop(&mut self.store) {
+        if let Err(err) =
+            futures::executor::block_on(self.parser_res.resource_drop_async(&mut self.store))
+        {
             log::error!("Error while dropping resources: {err}");
         }
     }
@@ -99,7 +104,10 @@ impl Drop for WasmParser {
 #[allow(unused)]
 impl WasmParser {
     //TODO: Read plugin config from file after prototyping phase
-    pub fn create(_config_path: impl AsRef<Path>, method: ParseMethod) -> anyhow::Result<Self> {
+    pub async fn create(
+        _config_path: impl AsRef<Path>,
+        method: ParseMethod,
+    ) -> anyhow::Result<Self> {
         // assume we are calling the function from indexer-cli
         let mut wasm_path = std::env::current_dir()?
             .join("../../../..")
@@ -117,14 +125,14 @@ impl WasmParser {
 
         let mut config = Config::new();
         config.wasm_component_model(true);
-        config.async_support(false);
+        config.async_support(true);
 
         let engine = Engine::new(&config)?;
 
         let component = Component::from_file(&engine, wasm_path)?;
 
         let mut linker = Linker::new(&engine);
-        wasmtime_wasi::add_to_linker_sync(&mut linker)?;
+        wasmtime_wasi::add_to_linker_async(&mut linker)?;
 
         self::host::indexer::parsing::add_to_linker(&mut linker, |state| state);
 
@@ -135,12 +143,14 @@ impl WasmParser {
 
         let queue_res = store.data_mut().table().push(ResQueue::default()).unwrap();
 
-        let (parse_translate, _instance) = Parse::instantiate(&mut store, &component, &linker)?;
+        let (parse_translate, _instance) =
+            Parse::instantiate_async(&mut store, &component, &linker).await?;
 
         let parser_res = parse_translate
             .interface0
             .parser()
-            .call_constructor(&mut store)?;
+            .call_constructor(&mut store)
+            .await?;
 
         Ok(Self {
             engine,
@@ -165,16 +175,19 @@ impl WasmParser {
             // In case of errors we send the whole slice again. This could be optimized to reduce
             // the calls to wasm
             None | Some(Err(Error::Parse(_))) | Some(Err(Error::Incomplete)) => {
-                let results = self
-                    .parse_translate
-                    .interface0
-                    .parser()
-                    .call_parse(&mut self.store, self.parser_res, input, timestamp)
-                    //TODO: Change this after implementing error definitions
-                    .map_err(|err| {
-                        println!("TODO AAZ: Early Error: {err}");
-                        parsers::Error::Parse(err.to_string())
-                    })?;
+                let results = futures::executor::block_on(
+                    self.parse_translate.interface0.parser().call_parse(
+                        &mut self.store,
+                        self.parser_res,
+                        input,
+                        timestamp,
+                    ),
+                )
+                //TODO: Change this after implementing error definitions
+                .map_err(|err| {
+                    println!("TODO AAZ: Early Error: {err}");
+                    parsers::Error::Parse(err.to_string())
+                })?;
                 self.cache = results.into();
                 self.cache
                     .pop_front()
@@ -215,21 +228,20 @@ impl WasmParser {
             // the calls to wasm
             None | Some(Err(Error::Parse(_))) | Some(Err(Error::Incomplete)) => {
                 let results_res: Resource<ResQueue> = Resource::new_borrow(self.queue_res.rep());
-                self.parse_translate
-                    .interface0
-                    .parser()
-                    .call_parse_res(
+                futures::executor::block_on(
+                    self.parse_translate.interface0.parser().call_parse_res(
                         &mut self.store,
                         self.parser_res,
                         input,
                         timestamp,
                         results_res,
-                    )
-                    //TODO: Change this after implementing error definitions
-                    .map_err(|err| {
-                        println!("TODO AAZ: Early Error: {err}");
-                        parsers::Error::Parse(err.to_string())
-                    })?;
+                    ),
+                )
+                //TODO: Change this after implementing error definitions
+                .map_err(|err| {
+                    println!("TODO AAZ: Early Error: {err}");
+                    parsers::Error::Parse(err.to_string())
+                })?;
                 return self.parse_with_res(input, timestamp);
             }
             Some(res) => res,
@@ -267,21 +279,20 @@ impl WasmParser {
             // the calls to wasm
             None | Some(Err(Error::Parse(_))) | Some(Err(Error::Incomplete)) => {
                 let results_res: Resource<ResQueue> = Resource::new_borrow(self.queue_res.rep());
-                self.parse_translate
-                    .interface0
-                    .parser()
-                    .call_parse_res_rng(
+                futures::executor::block_on(
+                    self.parse_translate.interface0.parser().call_parse_res_rng(
                         &mut self.store,
                         self.parser_res,
                         input,
                         timestamp,
                         results_res,
-                    )
-                    //TODO: Change this after implementing error definitions
-                    .map_err(|err| {
-                        println!("TODO AAZ: Early Error: {err}");
-                        parsers::Error::Parse(err.to_string())
-                    })?;
+                    ),
+                )
+                //TODO: Change this after implementing error definitions
+                .map_err(|err| {
+                    println!("TODO AAZ: Early Error: {err}");
+                    parsers::Error::Parse(err.to_string())
+                })?;
                 return self.parse_with_res_rng(input, timestamp);
             }
             Some(res) => res,

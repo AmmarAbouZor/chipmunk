@@ -81,8 +81,9 @@ pub async fn run_source<S: ByteSource>(
 
                     let dummy_path = PathBuf::from(".");
                     //TODO: Add new error type for the plugins
-                    let wasm_parser =
-                        plugin_host::WasmParser::create(dummy_path, method).map_err(|err| {
+                    let wasm_parser = plugin_host::WasmParser::create(dummy_path, method)
+                        .await
+                        .map_err(|err| {
                             dbg!(&err);
                             NativeError {
                                 kind: NativeErrorKind::Io,
