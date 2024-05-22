@@ -5,6 +5,7 @@ use crate::{
     state::SessionStateAPI,
     tail,
 };
+use plugin_host::WasmByteSource;
 use sources::{
     binary::{
         pcap::{legacy::PcapLegacyByteSource, ng::PcapngByteSource},
@@ -12,11 +13,13 @@ use sources::{
     },
     factory::{FileFormat, ParserType},
 };
-use std::{fs::File, path::Path};
+use std::{env, fs::File, path::Path};
 use tokio::{
     join, select,
     sync::mpsc::{channel, Receiver, Sender},
 };
+
+pub const USE_WASM_DLT_ENV: &str = "WASM_SOURCE";
 
 #[allow(clippy::type_complexity)]
 pub async fn observe_file<'a>(
@@ -34,20 +37,47 @@ pub async fn observe_file<'a>(
     ) = channel(1);
     match file_format {
         FileFormat::Binary => {
-            let source = BinaryByteSource::new(input_file(filename)?);
-            let (_, listening) = join!(
-                tail::track(filename, tx_tail, operation_api.cancellation_token()),
-                super::run_source(
-                    operation_api,
-                    state,
-                    source,
-                    source_id,
-                    parser,
-                    None,
-                    Some(rx_tail)
-                )
-            );
-            listening
+            if env::var(USE_WASM_DLT_ENV).is_err() {
+                println!("------------------------------------------------------");
+                println!("------------    NATIVE source used    ----------------");
+                println!("------------------------------------------------------");
+                let source = BinaryByteSource::new(input_file(filename)?);
+
+                let (_, listening) = join!(
+                    tail::track(filename, tx_tail, operation_api.cancellation_token()),
+                    super::run_source(
+                        operation_api,
+                        state,
+                        source,
+                        source_id,
+                        parser,
+                        None,
+                        Some(rx_tail)
+                    )
+                );
+
+                listening
+            } else {
+                println!("------------------------------------------------------");
+                println!("-------------    WASM source used    -----------------");
+                println!("------------------------------------------------------");
+                let wasm_source = WasmByteSource::create(filename, "").await.unwrap();
+                let source = BinaryByteSource::new(wasm_source);
+                let (_, listening) = join!(
+                    tail::track(filename, tx_tail, operation_api.cancellation_token()),
+                    super::run_source(
+                        operation_api,
+                        state,
+                        source,
+                        source_id,
+                        parser,
+                        None,
+                        Some(rx_tail)
+                    )
+                );
+
+                listening
+            }
         }
         FileFormat::PcapLegacy => {
             let source = PcapLegacyByteSource::new(input_file(filename)?)?;

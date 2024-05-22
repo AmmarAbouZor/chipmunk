@@ -5,9 +5,10 @@ use std::fmt::Display;
 
 use parsers::LogMessage;
 use serde::Serialize;
-
-pub use wasm_parser::WasmParser;
 use wasmtime_wasi::{ResourceTable, WasiCtx, WasiView};
+
+pub use wasm_bytesource::WasmByteSource;
+pub use wasm_parser::WasmParser;
 
 /// Represents which method should be used with the parsing. This is used in the experimental phase  
 pub enum ParseMethod {

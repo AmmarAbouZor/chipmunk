@@ -38,7 +38,7 @@ pub mod stream;
 
 pub const FLUSH_TIMEOUT_IN_MS: u128 = 500;
 
-pub const USE_WASM_DLT_ENV: &str = "USE_WASM";
+pub const USE_WASM_DLT_ENV: &str = "WASM_PARSE";
 
 pub async fn run_source<S: ByteSource>(
     operation_api: OperationAPI,
@@ -68,7 +68,7 @@ pub async fn run_source<S: ByteSource>(
             match env::var(USE_WASM_DLT_ENV) {
                 Ok(var) => {
                     println!("------------------------------------------------------");
-                    println!("----------------     WASM used      ------------------");
+                    println!("-------------    WASM parser used    -----------------");
                     println!("------------------------------------------------------");
                     let method = match var.as_str() {
                         "vec" => plugin_host::ParseMethod::ReturnVec,
@@ -98,7 +98,7 @@ pub async fn run_source<S: ByteSource>(
                 }
                 Err(_) => {
                     println!("------------------------------------------------------");
-                    println!("---------------     NATIVE used     ------------------");
+                    println!("------------    NATIVE parser used    ----------------");
                     println!("------------------------------------------------------");
                     let fmt_options = Some(FormatOptions::from(settings.tz.as_ref()));
                     let dlt_parser = DltParser::new(

@@ -1,58 +1,55 @@
 use std::{
     cell::RefCell,
     fs::File,
-    io::{Read, Seek},
-    path::PathBuf,
+    io::{BufReader, Read},
 };
 
 use crate::{
     exports::host::indexer::source_client::GuestByteSource, host::indexer::sourcing::SourceError,
 };
 
-//TODO AAZ: Taken from native. Make sure we need it here.
-// pub(crate) const DEFAULT_READER_CAPACITY: usize = 10 * 1024 * 1024;
-
-// The structure must be the same between the host and the guest
-const WASM_FILES_DIR: &str = "./files";
-
+#[derive(Default)]
 pub struct FileSource {
-    file: RefCell<Option<File>>,
+    reader: RefCell<Option<BufReader<File>>>,
 }
 
 impl GuestByteSource for FileSource {
-    fn new(_config_path: String) -> Self {
-        Self {
-            file: RefCell::new(None),
-        }
+    fn new() -> Self {
+        Self::default()
     }
 
-    fn init(&self, file_name: String) -> Result<(), SourceError> {
-        let file_path = PathBuf::from(WASM_FILES_DIR).join(file_name);
+    fn init(&self, _config_path: String, file_path: String) -> Result<(), SourceError> {
         let file = File::open(file_path).map_err(|err| SourceError::Io(err.to_string()))?;
-        *self.file.borrow_mut() = Some(file);
+        *self.reader.borrow_mut() = Some(BufReader::new(file));
         Ok(())
     }
 
     fn read(&self, len: u64) -> Result<Vec<u8>, SourceError> {
-        let mut buf = Vec::with_capacity(len as usize);
-        let mut file_borrow = self.file.borrow_mut();
-        let file = file_borrow
+        let len = len as usize;
+        let mut buf = Vec::with_capacity(len);
+        //TODO AAZ: Test the difference for this unsafe code call.
+        // SAFETY: truncate is called on the buffer after read call with the read amount of bytes.
+        unsafe {
+            buf.set_len(len);
+        }
+
+        let mut reader_borrow = self.reader.borrow_mut();
+        let reader = reader_borrow
             .as_mut()
             .ok_or_else(|| SourceError::Other("Source is not initialized".into()))?;
 
-        file.read_exact(&mut buf)
+        let bytes_read = reader
+            .read(&mut buf)
             .map_err(|err| SourceError::Io(format!("Error while reading from file: {}", err)))?;
 
+        // TODO AAZ: Measure this
+        // This check is useful in our use case since truncate implementation checks for greater
+        // than and not greater equal, but in our case we expect the bytes_read to be equal to the
+        // given len in most cases.
+        if bytes_read < len {
+            buf.truncate(bytes_read);
+        }
+
         Ok(buf)
-    }
-
-    fn reload(&self) -> Result<(), SourceError> {
-        let mut file_borrow = self.file.borrow_mut();
-        let file = file_borrow
-            .as_mut()
-            .ok_or_else(|| SourceError::Other("Source is not initialized".into()))?;
-
-        file.rewind()
-            .map_err(|err| SourceError::Io(err.to_string()))
     }
 }

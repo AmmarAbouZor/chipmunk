@@ -10,6 +10,7 @@ anyhow = "1.0.83"
 log = "0.4.21"
 wasmtime = "21.0.0"
 parsers = {path = "../../parsers"}
+sources = {path = "../../sources"}
 serde = "1.0"
 # TODO AAZ: The feature preview_1 is included by default but we may not need it
 wasmtime-wasi = "21.0.0"

@@ -54,7 +54,6 @@ interface sourcing {
   variant source-error {
     io(string),
     other(string),
-    eof,
   }
 }
 
@@ -62,10 +61,9 @@ interface source-client {
   use sourcing.{source-error};
 
   resource byte-source{
-    constructor(config-path: string);
-    init: func(file-name: string) -> result<_, source-error>;
+    constructor();
+    init: func(config-path: string, file-path: string) -> result<_, source-error>;
     read: func(len: u64) -> result<list<u8>, source-error>;
-    reload: func() -> result<_, source-error>;
   }
 }
 
