@@ -77,7 +77,11 @@ pub async fn run_source<S: ByteSource>(
                         invalid => unreachable!("Invalid WASM ENV var: {invalid}"),
                     };
 
-                    println!("Parse Mehtod: {method}");
+                    println!(
+                        "Parse Mehtod is currently always: {}",
+                        plugin_host::ParseMethod::ResSingle
+                    );
+                    // println!("Parse Mehtod: {method}");
 
                     let dummy_path = PathBuf::from(".");
                     //TODO: Add new error type for the plugins

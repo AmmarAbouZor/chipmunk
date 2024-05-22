@@ -320,11 +320,14 @@ impl Parser<PluginParseMessage> for WasmParser {
         input: &'a [u8],
         timestamp: Option<u64>,
     ) -> Result<(&'a [u8], Option<parsers::ParseYield<PluginParseMessage>>), parsers::Error> {
-        match self.method {
-            ParseMethod::ReturnVec => self.parse_with_list(input, timestamp),
-            ParseMethod::ResSingle => self.parse_with_res(input, timestamp),
-            ParseMethod::ResRange => self.parse_with_res_rng(input, timestamp),
-        }
+        //TODO AAZ: Currently I'm using parse_with_res because it has the best perfomance on my
+        //machine, but I need to test the other approaches on another machine
+        self.parse_with_res(input, timestamp)
+        // match self.method {
+        //     ParseMethod::ReturnVec => self.parse_with_list(input, timestamp),
+        //     ParseMethod::ResSingle => self.parse_with_res(input, timestamp),
+        //     ParseMethod::ResRange => self.parse_with_res_rng(input, timestamp),
+        // }
     }
 }
 
