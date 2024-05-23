@@ -1,4 +1,7 @@
-use std::{env, path::PathBuf};
+use std::{
+    env,
+    path::{Path, PathBuf},
+};
 
 use crate::{
     events::{NativeError, NativeErrorKind},
@@ -14,6 +17,7 @@ use parsers::{
     text::StringTokenizer,
     LogMessage, MessageStreamItem, ParseYield, Parser,
 };
+use plugin_host::WasmProducerWrapper;
 use sources::{
     factory::ParserType,
     producer::{MessageProducer, SdeReceiver},
@@ -132,6 +136,123 @@ async fn run_producer<T: LogMessage, P: Parser<T>, S: ByteSource>(
     operation_api.processing();
     let cancel = operation_api.cancellation_token();
     let stream = producer.as_stream();
+    futures::pin_mut!(stream);
+    let cancel_on_tail = cancel.clone();
+    while let Some(next) = select! {
+        next_from_stream = async {
+            match timeout(Duration::from_millis(FLUSH_TIMEOUT_IN_MS as u64), stream.next()).await {
+                Ok(item) => {
+                    if let Some((_, item)) = item {
+                        Some(Next::Item(item))
+                    } else {
+                        Some(Next::Waiting)
+                    }
+                },
+                Err(_) => Some(Next::Timeout),
+            }
+        } => next_from_stream,
+        _ = cancel.cancelled() => None,
+    } {
+        match next {
+            Next::Item(item) => {
+                match item {
+                    MessageStreamItem::Item(ParseYield::Message(item)) => {
+                        // println!("Message: {item}");
+                        state
+                            .write_session_file(source_id, format!("{item}\n"))
+                            .await?;
+                    }
+                    MessageStreamItem::Item(ParseYield::MessageAndAttachment((
+                        item,
+                        attachment,
+                    ))) => {
+                        // println!("Message and attachment: {item}, {attachment:?}");
+                        state
+                            .write_session_file(source_id, format!("{item}\n"))
+                            .await?;
+                        state.add_attachment(attachment)?;
+                    }
+                    MessageStreamItem::Item(ParseYield::Attachment(attachment)) => {
+                        // println!("Attachment: {attachment:?}");
+                        state.add_attachment(attachment)?;
+                    }
+                    MessageStreamItem::Done => {
+                        trace!("observe, message stream is done");
+                        // println!("observe, message stream is done");
+                        state.flush_session_file().await?;
+                        state.file_read().await?;
+                    }
+                    // MessageStreamItem::FileRead => {
+                    //     state.file_read().await?;
+                    // }
+                    MessageStreamItem::Skipped => {
+                        // println!("observe: skipped a message");
+                        trace!("observe: skipped a message");
+                    }
+                    MessageStreamItem::Incomplete => {
+                        // println!("observe: incomplete message");
+                        trace!("observe: incomplete message");
+                    }
+                    MessageStreamItem::Empty => {
+                        // println!("observe: empty message");
+                        trace!("observe: empty message");
+                    }
+                }
+            }
+            Next::Timeout => {
+                if !state.is_closing() {
+                    state.flush_session_file().await?;
+                }
+            }
+            Next::Waiting => {
+                if let Some(mut rx_tail) = rx_tail.take() {
+                    if select! {
+                        next_from_stream = rx_tail.recv() => {
+                            if let Some(result) = next_from_stream {
+                                result.is_err()
+                            } else {
+                                true
+                            }
+                        },
+                        _ = cancel_on_tail.cancelled() => true,
+                    } {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+    debug!("listen done");
+    Ok(None)
+}
+
+pub async fn run_source_wasm(
+    operation_api: OperationAPI,
+    state: SessionStateAPI,
+    file_path: impl AsRef<Path>,
+    source_id: u16,
+    rx_tail: Option<Receiver<Result<(), tail::Error>>>,
+) -> OperationResult<()> {
+    run_producer_wasm(operation_api, state, source_id, file_path, rx_tail).await
+}
+
+async fn run_producer_wasm(
+    operation_api: OperationAPI,
+    state: SessionStateAPI,
+    source_id: u16,
+    file_path: impl AsRef<Path>,
+    mut rx_tail: Option<Receiver<Result<(), tail::Error>>>,
+) -> OperationResult<()> {
+    let mut producer = WasmProducerWrapper::create(file_path).await.unwrap();
+
+    // Code Copied from run_producer() without any change.
+    use log::debug;
+    state.set_session_file(None).await?;
+    operation_api.processing();
+    let cancel = operation_api.cancellation_token();
+    let stream = producer.as_stream_wasm();
     futures::pin_mut!(stream);
     let cancel_on_tail = cancel.clone();
     while let Some(next) = select! {

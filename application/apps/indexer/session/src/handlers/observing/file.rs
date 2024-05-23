@@ -19,7 +19,8 @@ use tokio::{
     sync::mpsc::{channel, Receiver, Sender},
 };
 
-pub const USE_WASM_DLT_ENV: &str = "WASM_SOURCE";
+pub const USE_WASM_SOURCE_ENV: &str = "WASM_SOURCE";
+pub const USE_WASM_PRODUCER_ENV: &str = "WASM_PRODUCER";
 
 #[allow(clippy::type_complexity)]
 pub async fn observe_file<'a>(
@@ -37,12 +38,29 @@ pub async fn observe_file<'a>(
     ) = channel(1);
     match file_format {
         FileFormat::Binary => {
-            if env::var(USE_WASM_DLT_ENV).is_err() {
+            if env::var(USE_WASM_PRODUCER_ENV).is_ok() {
                 println!("------------------------------------------------------");
-                println!("------------    NATIVE source used    ----------------");
+                println!("-------------    WASM producer used    -----------------");
                 println!("------------------------------------------------------");
-                let source = BinaryByteSource::new(input_file(filename)?);
 
+                let (_, listening) = join!(
+                    tail::track(filename, tx_tail, operation_api.cancellation_token()),
+                    super::run_source_wasm(
+                        operation_api,
+                        state,
+                        filename,
+                        source_id,
+                        Some(rx_tail)
+                    )
+                );
+
+                listening
+            } else if env::var(USE_WASM_SOURCE_ENV).is_ok() {
+                println!("------------------------------------------------------");
+                println!("-------------    WASM source used    -----------------");
+                println!("------------------------------------------------------");
+                let wasm_source = WasmByteSource::create(filename, "").await.unwrap();
+                let source = BinaryByteSource::new(wasm_source);
                 let (_, listening) = join!(
                     tail::track(filename, tx_tail, operation_api.cancellation_token()),
                     super::run_source(
@@ -59,10 +77,10 @@ pub async fn observe_file<'a>(
                 listening
             } else {
                 println!("------------------------------------------------------");
-                println!("-------------    WASM source used    -----------------");
+                println!("------------    NATIVE source used    ----------------");
                 println!("------------------------------------------------------");
-                let wasm_source = WasmByteSource::create(filename, "").await.unwrap();
-                let source = BinaryByteSource::new(wasm_source);
+                let source = BinaryByteSource::new(input_file(filename)?);
+
                 let (_, listening) = join!(
                     tail::track(filename, tx_tail, operation_api.cancellation_token()),
                     super::run_source(

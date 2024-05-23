@@ -15,5 +15,5 @@ serde = "1.0"
 # TODO AAZ: The feature preview_1 is included by default but we may not need it
 wasmtime-wasi = "21.0.0"
 
-# TODO AAZ: Compare the performance between futures and tokio crates
-futures = "0.3.30"
+futures = "0.3"
+async-stream = "0.3"
