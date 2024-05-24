@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     exports::host::indexer::source_prod_client::GuestSourceProd,
-    host::indexer::{parse_client::Parser, parsing::Results, sourcing::SourceError},
+    host::indexer::{parse_client::Parser, sourcing::SourceError},
 };
 
 pub struct FileSourceProd {
@@ -37,7 +37,6 @@ impl GuestSourceProd for FileSourceProd {
         len: u64,
         read_len: u64,
         timestamp: Option<u64>,
-        results: &Results,
     ) -> Result<(), SourceError> {
         let mut reader_borrow = self.reader.borrow_mut();
         let reader = reader_borrow
@@ -76,7 +75,7 @@ impl GuestSourceProd for FileSourceProd {
 
         self.last_read_len.set(bytes_read as u64);
 
-        self.parser.parse_res(&buf, timestamp, results);
+        self.parser.parse_res(&buf, timestamp);
 
         Ok(())
     }

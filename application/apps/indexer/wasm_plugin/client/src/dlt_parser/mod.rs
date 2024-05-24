@@ -4,8 +4,9 @@ mod ft_scanner;
 
 use std::{cell::RefCell, ops::DerefMut};
 
-use crate::exports::host::indexer::parse_client::{Error, GuestParser, ParseReturn, Results};
-use crate::host::indexer::parsing::ParseYield;
+use crate::exports::host::indexer::parse_client::{Error, GuestParser, ParseReturn};
+#[allow(unused)]
+use crate::host::indexer::parsing::{add, add_range, ParseYield};
 use dlt_core::{dlt, parse::dlt_message};
 
 use self::{formattable_msg::FormattableMessage, ft_scanner::FtScanner};
@@ -74,7 +75,7 @@ impl GuestParser for DltParser {
         }
     }
 
-    fn parse_res(&self, data: Vec<u8>, timestamp: Option<u64>, results: &Results) {
+    fn parse_res(&self, data: Vec<u8>, timestamp: Option<u64>) {
         let mut slice = &data[0..];
         let mut ft_scanner = self.ft_scanner.borrow_mut();
         loop {
@@ -86,10 +87,11 @@ impl GuestParser for DltParser {
             ) {
                 Ok(res) => {
                     slice = &slice[res.cursor as usize..];
-                    results.add(Ok(&res));
+
+                    add(Ok(&res));
                 }
                 Err(err) => {
-                    results.add(Err(&err));
+                    add(Err(&err));
                     return;
                 }
             }
@@ -97,7 +99,7 @@ impl GuestParser for DltParser {
     }
 
     #[allow(unused)]
-    fn parse_res_rng(&self, data: Vec<u8>, timestamp: Option<u64>, results: &Results) {
+    fn parse_res_rng(&self, data: Vec<u8>, timestamp: Option<u64>) {
         let mut items = Vec::new();
         let mut slice = &data[0..];
         let mut ft_scanner = self.ft_scanner.borrow_mut();
@@ -120,7 +122,7 @@ impl GuestParser for DltParser {
         }
         unreachable!("res range is activated in favor of res single");
 
-        // results.add_range(&items);
+        // add_range(&items);
     }
 
     fn parse(&self, data: Vec<u8>, timestamp: Option<u64>) -> Vec<Result<ParseReturn, Error>> {

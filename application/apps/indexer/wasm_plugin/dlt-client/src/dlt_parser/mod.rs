@@ -2,8 +2,9 @@ use std::{cell::RefCell, ops::DerefMut};
 
 use parsers::{dlt::DltParser, Parser};
 
-use crate::exports::host::indexer::parse_client::{Error, GuestParser, ParseReturn, Results};
-use crate::host::indexer::parsing::{Attachment, ParseYield};
+use crate::exports::host::indexer::parse_client::{Error, GuestParser, ParseReturn};
+#[allow(unused)]
+use crate::host::indexer::parsing::{add, add_range, Attachment, ParseYield};
 
 pub struct WasiDltParser {
     parser: RefCell<DltParser<'static>>,
@@ -72,17 +73,17 @@ impl GuestParser for WasiDltParser {
         }
     }
 
-    fn parse_res(&self, data: Vec<u8>, timestamp: Option<u64>, results: &Results) {
+    fn parse_res(&self, data: Vec<u8>, timestamp: Option<u64>) {
         let mut slice = &data[0..];
         let mut parser = self.parser.borrow_mut();
         loop {
             match Self::parse_intern(parser.deref_mut(), slice, timestamp) {
                 Ok(res) => {
                     slice = &slice[res.cursor as usize..];
-                    results.add(Ok(&res));
+                    add(Ok(&res));
                 }
                 Err(err) => {
-                    results.add(Err(&err));
+                    add(Err(&err));
                     return;
                 }
             }
@@ -90,7 +91,7 @@ impl GuestParser for WasiDltParser {
     }
 
     #[allow(unused)]
-    fn parse_res_rng(&self, data: Vec<u8>, timestamp: Option<u64>, results: &Results) {
+    fn parse_res_rng(&self, data: Vec<u8>, timestamp: Option<u64>) {
         let mut items = Vec::new();
         let mut slice = &data[0..];
         let mut parser = self.parser.borrow_mut();
@@ -109,7 +110,7 @@ impl GuestParser for WasiDltParser {
 
         unreachable!("res range is activated in favor of res single");
 
-        // results.add_range(&items);
+        // add_range(&items);
     }
 }
 

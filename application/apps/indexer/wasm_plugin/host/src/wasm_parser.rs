@@ -2,17 +2,14 @@ use std::{collections::VecDeque, path::Path, usize};
 
 use parsers::Parser;
 use wasmtime::{
-    component::{Component, Linker, Resource, ResourceAny},
+    component::{Component, Linker, ResourceAny},
     Config, Engine, Store,
 };
-use wasmtime_wasi::{ResourceTable, WasiCtxBuilder, WasiView};
+use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiView};
 
-use crate::{GeneralState, ParseMethod, PluginParseMessage};
+use crate::{ParseMethod, PluginParseMessage};
 
-use self::{
-    exports::host::indexer::parse_client::{Error, ParseReturn},
-    host::indexer::parsing::{Attachment, Host, HostResults, ParseYield},
-};
+use self::host::indexer::parsing::{self, Attachment, Error, ParseReturn, ParseYield};
 
 type ParseResult = Result<ParseReturn, Error>;
 
@@ -26,9 +23,6 @@ const WASM_FILE_PATH: &str =
 //TODO AAZ: Make sure we need ownership to be borrowing here
 wasmtime::component::bindgen!({
     world: "parse",
-    with: {
-        "host:indexer/parsing/results": ResQueue,
-    },
     ownership: Borrowing {
         duplicate_if_necessary: false
     },
@@ -37,42 +31,44 @@ wasmtime::component::bindgen!({
     },
 });
 
-impl HostResults for GeneralState {
-    fn add(
-        &mut self,
-        queue: wasmtime::component::Resource<ResQueue>,
-        item: Result<ParseReturn, Error>,
-    ) {
-        let queue = self
-            .table()
-            .get_mut(&queue)
-            .expect("Queue is added to resource table");
-        queue.queue.push_back(item);
+struct MyParserState {
+    pub ctx: WasiCtx,
+    pub table: ResourceTable,
+    pub queue: VecDeque<ParseResult>,
+}
+
+impl MyParserState {
+    pub fn new(ctx: WasiCtx, table: ResourceTable) -> Self {
+        Self {
+            ctx,
+            table,
+            queue: Default::default(),
+        }
+    }
+}
+
+impl WasiView for MyParserState {
+    fn table(&mut self) -> &mut ResourceTable {
+        &mut self.table
+    }
+
+    fn ctx(&mut self) -> &mut WasiCtx {
+        &mut self.ctx
+    }
+}
+
+impl parsing::Host for MyParserState {
+    fn add(&mut self, item: Result<ParseReturn, Error>) -> () {
+        self.queue.push_back(item);
     }
 
     fn add_range(
         &mut self,
-        queue: wasmtime::component::Resource<ResQueue>,
-        items: Vec<Result<ParseReturn, Error>>,
-    ) {
-        let queue = self
-            .table()
-            .get_mut(&queue)
-            .expect("Queue is added to resource table");
-        queue.queue = items.into();
+        items: wasmtime::component::__internal::Vec<Result<ParseReturn, Error>>,
+    ) -> () {
+        assert!(self.queue.is_empty());
+        self.queue = items.into();
     }
-
-    fn drop(&mut self, rep: wasmtime::component::Resource<ResQueue>) -> wasmtime::Result<()> {
-        self.table.delete(rep).expect("Queue is in resource table");
-        Ok(())
-    }
-}
-
-impl Host for GeneralState {}
-
-#[derive(Default)]
-pub struct ResQueue {
-    pub queue: VecDeque<ParseResult>,
 }
 
 // Suppress unused fields here while prototyping
@@ -80,12 +76,11 @@ pub struct ResQueue {
 pub struct WasmParser {
     engine: Engine,
     component: Component,
-    linker: Linker<GeneralState>,
-    store: Store<GeneralState>,
+    linker: Linker<MyParserState>,
+    store: Store<MyParserState>,
     parse_translate: Parse,
     parser_res: ResourceAny,
     cache: VecDeque<ParseResult>,
-    queue_res: Resource<ResQueue>,
     method: ParseMethod,
 }
 
@@ -139,9 +134,7 @@ impl WasmParser {
         let ctx = WasiCtxBuilder::new().build();
         let table = ResourceTable::new();
 
-        let mut store = Store::new(&engine, GeneralState::new(ctx, table));
-
-        let queue_res = store.data_mut().table().push(ResQueue::default()).unwrap();
+        let mut store = Store::new(&engine, MyParserState::new(ctx, table));
 
         let (parse_translate, _instance) =
             Parse::instantiate_async(&mut store, &component, &linker).await?;
@@ -160,7 +153,6 @@ impl WasmParser {
             parse_translate,
             parser_res,
             cache: VecDeque::new(),
-            queue_res,
             method,
         })
     }
@@ -217,24 +209,17 @@ impl WasmParser {
         input: &'a [u8],
         timestamp: Option<u64>,
     ) -> Result<(&'a [u8], Option<parsers::ParseYield<PluginParseMessage>>), parsers::Error> {
-        let queue = self
-            .store
-            .data_mut()
-            .table()
-            .get_mut(&self.queue_res)
-            .unwrap();
-        let raw_res = match queue.queue.pop_front() {
+        let queue = &mut self.store.data_mut().queue;
+        let raw_res = match queue.pop_front() {
             // In case of errors we send the whole slice again. This could be optimized to reduce
             // the calls to wasm
             None | Some(Err(Error::Parse(_))) | Some(Err(Error::Incomplete)) => {
-                let results_res: Resource<ResQueue> = Resource::new_borrow(self.queue_res.rep());
                 futures::executor::block_on(
                     self.parse_translate.interface0.parser().call_parse_res(
                         &mut self.store,
                         self.parser_res,
                         input,
                         timestamp,
-                        results_res,
                     ),
                 )
                 //TODO: Change this after implementing error definitions
@@ -268,24 +253,17 @@ impl WasmParser {
         input: &'a [u8],
         timestamp: Option<u64>,
     ) -> Result<(&'a [u8], Option<parsers::ParseYield<PluginParseMessage>>), parsers::Error> {
-        let queue = self
-            .store
-            .data_mut()
-            .table()
-            .get_mut(&self.queue_res)
-            .unwrap();
-        let raw_res = match queue.queue.pop_front() {
+        let queue = &mut self.store.data_mut().queue;
+        let raw_res = match queue.pop_front() {
             // In case of errors we send the whole slice again. This could be optimized to reduce
             // the calls to wasm
             None | Some(Err(Error::Parse(_))) | Some(Err(Error::Incomplete)) => {
-                let results_res: Resource<ResQueue> = Resource::new_borrow(self.queue_res.rep());
                 futures::executor::block_on(
                     self.parse_translate.interface0.parser().call_parse_res_rng(
                         &mut self.store,
                         self.parser_res,
                         input,
                         timestamp,
-                        results_res,
                     ),
                 )
                 //TODO: Change this after implementing error definitions

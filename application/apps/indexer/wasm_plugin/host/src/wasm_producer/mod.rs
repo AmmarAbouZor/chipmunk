@@ -6,18 +6,19 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{GeneralState, PluginParseMessage};
+use crate::PluginParseMessage;
 
-use self::host::indexer::parsing::{Attachment, Error, Host, HostResults, ParseReturn, ParseYield};
+use self::host::indexer::parsing::{self, Attachment, Error, ParseReturn, ParseYield};
 use wasmtime::{
-    component::{Component, Linker, Resource, ResourceAny},
+    component::{Component, Linker, ResourceAny},
     Config, Engine, Store,
 };
-use wasmtime_wasi::{DirPerms, FilePerms, ResourceTable, WasiCtxBuilder, WasiView};
+use wasmtime_wasi::{DirPerms, FilePerms, ResourceTable, WasiCtx, WasiCtxBuilder, WasiView};
 
-type ParseResultIntern = Result<ParseReturn, Error>;
+type ParseResult = Result<ParseReturn, Error>;
 
-type ParseResult = Result<(usize, Option<parsers::ParseYield<PluginParseMessage>>), parsers::Error>;
+type ParseResultExtern =
+    Result<(usize, Option<parsers::ParseYield<PluginParseMessage>>), parsers::Error>;
 
 const SOURCE_PROD_FILE_PATH: &str = "application/apps/indexer/wasm_plugin/plugged.wasm";
 
@@ -29,9 +30,6 @@ pub(crate) const DEFAULT_READER_CAPACITY: u64 = 10 * 1024 * 1024;
 //TODO AAZ: Make sure we need ownership to be borrowing here
 wasmtime::component::bindgen!({
     world: "producer",
-    with: {
-        "host:indexer/parsing/results": ResQueue,
-    },
     ownership: Borrowing {
         duplicate_if_necessary: false
     },
@@ -40,42 +38,44 @@ wasmtime::component::bindgen!({
     },
 });
 
-impl HostResults for GeneralState {
-    fn add(
-        &mut self,
-        queue: wasmtime::component::Resource<ResQueue>,
-        item: Result<ParseReturn, Error>,
-    ) {
-        let queue = self
-            .table()
-            .get_mut(&queue)
-            .expect("Queue is added to resource table");
-        queue.queue.push_back(item);
+struct MyParserState {
+    pub ctx: WasiCtx,
+    pub table: ResourceTable,
+    pub queue: VecDeque<ParseResult>,
+}
+
+impl MyParserState {
+    pub fn new(ctx: WasiCtx, table: ResourceTable) -> Self {
+        Self {
+            ctx,
+            table,
+            queue: Default::default(),
+        }
+    }
+}
+
+impl WasiView for MyParserState {
+    fn table(&mut self) -> &mut ResourceTable {
+        &mut self.table
+    }
+
+    fn ctx(&mut self) -> &mut WasiCtx {
+        &mut self.ctx
+    }
+}
+
+impl parsing::Host for MyParserState {
+    fn add(&mut self, item: Result<ParseReturn, Error>) -> () {
+        self.queue.push_back(item);
     }
 
     fn add_range(
         &mut self,
-        queue: wasmtime::component::Resource<ResQueue>,
-        items: Vec<Result<ParseReturn, Error>>,
-    ) {
-        let queue = self
-            .table()
-            .get_mut(&queue)
-            .expect("Queue is added to resource table");
-        queue.queue = items.into();
+        items: wasmtime::component::__internal::Vec<Result<ParseReturn, Error>>,
+    ) -> () {
+        assert!(self.queue.is_empty());
+        self.queue = items.into();
     }
-
-    fn drop(&mut self, rep: wasmtime::component::Resource<ResQueue>) -> wasmtime::Result<()> {
-        self.table.delete(rep).expect("Queue is in resource table");
-        Ok(())
-    }
-}
-
-impl Host for GeneralState {}
-
-#[derive(Default)]
-pub struct ResQueue {
-    pub queue: VecDeque<ParseResultIntern>,
 }
 
 // Suppress unused fields here while prototyping
@@ -83,11 +83,10 @@ pub struct ResQueue {
 pub struct WasmProducer {
     engine: Engine,
     source_prod_component: Component,
-    linker: Linker<GeneralState>,
-    store: Store<GeneralState>,
+    linker: Linker<MyParserState>,
+    store: Store<MyParserState>,
     source_prod_translate: Producer,
     source_prod_res: ResourceAny,
-    queue_res: Resource<ResQueue>,
     read_count: u64,
 }
 
@@ -152,9 +151,7 @@ impl WasmProducer {
 
         let table = ResourceTable::new();
 
-        let mut store = Store::new(&engine, GeneralState::new(ctx, table));
-
-        let queue_res = store.data_mut().table().push(ResQueue::default()).unwrap();
+        let mut store = Store::new(&engine, MyParserState::new(ctx, table));
 
         let (source_prod_translate, _instance) =
             Producer::instantiate_async(&mut store, &source_prod_component, &linker).await?;
@@ -190,23 +187,16 @@ impl WasmProducer {
             store,
             source_prod_translate,
             source_prod_res,
-            queue_res,
             read_count: 0,
         })
     }
 
-    pub async fn read_next(&mut self) -> Option<ParseResult> {
-        let queue = self
-            .store
-            .data_mut()
-            .table()
-            .get_mut(&self.queue_res)
-            .unwrap();
-        let raw_res = match queue.queue.pop_front() {
+    pub async fn read_next(&mut self) -> Option<ParseResultExtern> {
+        let queue = &mut self.store.data_mut().queue;
+        let raw_res = match queue.pop_front() {
             // In case of errors we send the whole slice again. This could be optimized to reduce
             // the calls to wasm
             None | Some(Err(Error::Parse(_))) | Some(Err(Error::Incomplete)) => {
-                let results_res: Resource<ResQueue> = Resource::new_borrow(self.queue_res.rep());
                 self.source_prod_translate
                     .interface0
                     .source_prod()
@@ -216,7 +206,6 @@ impl WasmProducer {
                         DEFAULT_READER_CAPACITY,
                         self.read_count,
                         None,
-                        results_res,
                     )
                     .await
                     //TODO: Change this after implementing error definitions
@@ -227,13 +216,8 @@ impl WasmProducer {
                     .unwrap()
                     .unwrap();
                 self.read_count = 0;
-                let queue = self
-                    .store
-                    .data_mut()
-                    .table()
-                    .get_mut(&self.queue_res)
-                    .unwrap();
-                queue.queue.pop_front().unwrap()
+                let queue = &mut self.store.data_mut().queue;
+                queue.pop_front().unwrap()
             }
             Some(res) => res,
         };

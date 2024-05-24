@@ -28,20 +28,18 @@ interface parsing {
     eof,
   }
 
-  resource results {
-      add: func(item: result<parse-return, error>);
-      add-range: func(items: list<result<parse-return, error>>);
-  }
+  add: func(item: result<parse-return, error>);
+  add-range: func(items: list<result<parse-return, error>>);
 }
 
 interface parse-client {
-  use parsing.{error, parse-return, results};
+  use parsing.{error, parse-return};
 
   resource parser {
     constructor();
     parse: func(data: list<u8>, timestamp: option<u64>) -> list<result<parse-return, error>>;
-    parse-res: func(data: list<u8>, timestamp: option<u64>, results: borrow<results>);
-    parse-res-rng: func(data: list<u8>, timestamp: option<u64>, results: borrow<results>);
+    parse-res: func(data: list<u8>, timestamp: option<u64>);
+    parse-res-rng: func(data: list<u8>, timestamp: option<u64>);
   }
 }
 
@@ -89,13 +87,13 @@ world source {
 
 interface source-prod-client {
   use sourcing.{source-error};
-  use parsing.{results};
+  use parsing.{error, parse-return};
   use parse-client.{parser};
 
   resource source-prod{
     constructor();
     init: func(config-path: string, file-path: string) -> result<_, source-error>;
-    read-then-parse: func(len: u64, bytes-read: u64, timestamp: option<u64>, results: borrow<results>) -> result<_, source-error>;
+    read-then-parse: func(len: u64, bytes-read: u64, timestamp: option<u64>) -> result<_, source-error>;
   }
 }
 
