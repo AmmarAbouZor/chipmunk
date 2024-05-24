@@ -6,9 +6,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{wasm_parser::Parse, GeneralState, PluginParseMessage};
+use crate::{GeneralState, PluginParseMessage};
 
-use self::host::indexer::parsing::{Error, Host, HostResults, ParseReturn};
+use self::host::indexer::parsing::{Attachment, Error, Host, HostResults, ParseReturn, ParseYield};
 use wasmtime::{
     component::{Component, Linker, Resource, ResourceAny},
     Config, Engine, Store,
@@ -19,15 +19,12 @@ type ParseResultIntern = Result<ParseReturn, Error>;
 
 type ParseResult = Result<(usize, Option<parsers::ParseYield<PluginParseMessage>>), parsers::Error>;
 
-// const PARSER_FILE_PATH: &str =
-//     "application/apps/indexer/wasm_plugin/dlt-client/target/wasm32-wasi/release/dlt_client.wasm";
-const PARSER_FILE_PATH: &str =
-    "application/apps/indexer/wasm_plugin/client/target/wasm32-wasi/release/client.wasm";
-
-const SOURCE_PROD_FILE_PATH: &str =
-    "application/apps/indexer/wasm_plugin/source-prod/target/wasm32-wasi/release/source_prod.wasm";
+const SOURCE_PROD_FILE_PATH: &str = "application/apps/indexer/wasm_plugin/plugged.wasm";
 
 const WASM_FILES_DIR: &str = "./files";
+
+// Taken from soruces/src/lib.rs
+pub(crate) const DEFAULT_READER_CAPACITY: u64 = 10 * 1024 * 1024;
 
 //TODO AAZ: Make sure we need ownership to be borrowing here
 wasmtime::component::bindgen!({
@@ -86,24 +83,21 @@ pub struct ResQueue {
 pub struct WasmProducer {
     engine: Engine,
     source_prod_component: Component,
-    parser_component: Component,
     linker: Linker<GeneralState>,
     store: Store<GeneralState>,
-    parse_translate: Parse,
-    parser_res: ResourceAny,
     source_prod_translate: Producer,
     source_prod_res: ResourceAny,
     queue_res: Resource<ResQueue>,
+    read_count: u64,
 }
 
 impl Drop for WasmProducer {
     fn drop(&mut self) {
         // It's required to call drop on the resource Parser instance manually
-        for res in [self.parser_res, self.source_prod_res] {
-            if let Err(err) = futures::executor::block_on(res.resource_drop_async(&mut self.store))
-            {
-                log::error!("Error while dropping resources: {err}");
-            }
+        if let Err(err) =
+            futures::executor::block_on(self.source_prod_res.resource_drop_async(&mut self.store))
+        {
+            log::error!("Error while dropping resources: {err}");
         }
     }
 }
@@ -127,7 +121,6 @@ fn get_valid_path(path_str: &str) -> anyhow::Result<PathBuf> {
 impl WasmProducer {
     pub async fn create(file_path: impl AsRef<Path>) -> anyhow::Result<Self> {
         let wasm_soruce_prod_path = get_valid_path(SOURCE_PROD_FILE_PATH)?;
-        let wasm_parser_path = get_valid_path(PARSER_FILE_PATH)?;
 
         let mut config = Config::new();
         config.wasm_component_model(true);
@@ -136,7 +129,6 @@ impl WasmProducer {
         let engine = Engine::new(&config)?;
 
         let source_prod_component = Component::from_file(&engine, wasm_soruce_prod_path)?;
-        let parser_component = Component::from_file(&engine, wasm_parser_path)?;
 
         let mut linker = Linker::new(&engine);
         wasmtime_wasi::add_to_linker_async(&mut linker)?;
@@ -163,15 +155,6 @@ impl WasmProducer {
         let mut store = Store::new(&engine, GeneralState::new(ctx, table));
 
         let queue_res = store.data_mut().table().push(ResQueue::default()).unwrap();
-
-        let (parse_translate, _instance) =
-            Parse::instantiate_async(&mut store, &parser_component, &linker).await?;
-
-        let parser_res = parse_translate
-            .host_indexer_parse_client()
-            .parser()
-            .call_constructor(&mut store)
-            .await?;
 
         let (source_prod_translate, _instance) =
             Producer::instantiate_async(&mut store, &source_prod_component, &linker).await?;
@@ -203,18 +186,97 @@ impl WasmProducer {
         Ok(Self {
             engine,
             source_prod_component,
-            parser_component,
             linker,
             store,
-            parse_translate,
-            parser_res,
             source_prod_translate,
             source_prod_res,
             queue_res,
+            read_count: 0,
         })
     }
 
     pub async fn read_next(&mut self) -> Option<ParseResult> {
-        todo!()
+        let queue = self
+            .store
+            .data_mut()
+            .table()
+            .get_mut(&self.queue_res)
+            .unwrap();
+        let raw_res = match queue.queue.pop_front() {
+            // In case of errors we send the whole slice again. This could be optimized to reduce
+            // the calls to wasm
+            None | Some(Err(Error::Parse(_))) | Some(Err(Error::Incomplete)) => {
+                let results_res: Resource<ResQueue> = Resource::new_borrow(self.queue_res.rep());
+                self.source_prod_translate
+                    .interface0
+                    .source_prod()
+                    .call_read_then_parse(
+                        &mut self.store,
+                        self.source_prod_res,
+                        DEFAULT_READER_CAPACITY,
+                        self.read_count,
+                        None,
+                        results_res,
+                    )
+                    .await
+                    //TODO: Change this after implementing error definitions
+                    .map_err(|err| {
+                        println!("TODO AAZ: Early Error: {err}");
+                        parsers::Error::Parse(err.to_string())
+                    })
+                    .unwrap()
+                    .unwrap();
+                self.read_count = 0;
+                let queue = self
+                    .store
+                    .data_mut()
+                    .table()
+                    .get_mut(&self.queue_res)
+                    .unwrap();
+                queue.queue.pop_front().unwrap()
+            }
+            Some(res) => res,
+        };
+
+        match raw_res {
+            Ok(val) => {
+                self.read_count += val.cursor;
+                let yld = val.value.map(|y| y.into_parsers_yield());
+
+                let not_used_offset = 0;
+
+                Some(Ok((not_used_offset, yld)))
+            }
+            Err(_) => {
+                // println!("TODO AAZ: Error: {err:?}");
+                None
+            }
+        }
+    }
+}
+
+impl Attachment {
+    fn into_parsers_attachment(self) -> parsers::Attachment {
+        parsers::Attachment {
+            data: self.data,
+            name: self.name,
+            size: self.size as usize,
+            messages: self.messages.into_iter().map(|n| n as usize).collect(),
+            created_date: self.created_date,
+            modified_date: self.modified_date,
+        }
+    }
+}
+
+impl ParseYield {
+    fn into_parsers_yield(self) -> parsers::ParseYield<PluginParseMessage> {
+        use parsers::ParseYield as HostYield;
+        match self {
+            ParseYield::Message(msg) => HostYield::Message(msg.into()),
+            ParseYield::Attachment(att) => HostYield::Attachment(att.into_parsers_attachment()),
+            ParseYield::MessageAndAttachment((msg, att)) => {
+                HostYield::MessageAndAttachment((msg.into(), att.into_parsers_attachment()))
+            }
+        }
     }
 }

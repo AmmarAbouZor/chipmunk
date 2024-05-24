@@ -78,8 +78,7 @@ interface source-prod-client {
   resource source-prod{
     constructor();
     init: func(config-path: string, file-path: string) -> result<_, source-error>;
-    read: func(len: u64) -> result<list<u8>, source-error>;
-    read-then-parse: func(len: u64, remain: s64,parser: borrow<parser>, timestamp: option<u64>, results: borrow<results>) -> result<_, source-error>;
+    read-then-parse: func(len: u64, bytes-read: u64, timestamp: option<u64>, results: borrow<results>) -> result<_, source-error>;
   }
 }
 
