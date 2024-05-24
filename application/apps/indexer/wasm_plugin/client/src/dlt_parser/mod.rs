@@ -96,6 +96,7 @@ impl GuestParser for DltParser {
         }
     }
 
+    #[allow(unused)]
     fn parse_res_rng(&self, data: Vec<u8>, timestamp: Option<u64>, results: &Results) {
         let mut items = Vec::new();
         let mut slice = &data[0..];
@@ -117,8 +118,9 @@ impl GuestParser for DltParser {
                 }
             }
         }
+        unreachable!("res range is activated in favor of res single");
 
-        results.add_range(&items);
+        // results.add_range(&items);
     }
 
     fn parse(&self, data: Vec<u8>, timestamp: Option<u64>) -> Vec<Result<ParseReturn, Error>> {

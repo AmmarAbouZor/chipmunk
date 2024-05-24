@@ -10,9 +10,9 @@ generate!({
     //TODO AAZ: Activating borrowing gives better results with resource single values. But we can't
     // Use it use resource range method.
     // Activate this if we ended up using resource single value
-    // ownership: Borrowing {
-    //     duplicate_if_necessary: false
-    // },
+    ownership: Borrowing {
+        duplicate_if_necessary: false
+    },
 });
 
 struct Component;
