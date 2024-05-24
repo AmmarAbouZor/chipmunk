@@ -1,0 +1,28 @@
+[workspace]
+
+[package]
+name = "client2"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+wit-bindgen = "0.25.0"
+wit-bindgen-rt = { version = "0.25.0", features = ["bitflags"] }
+dlt-core = { path = "../../../../../../dlt-core" }
+serde = "1.0.201"
+chrono = "0.4.38"
+humantime = "2.1.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[package.metadata.component]
+package = "component:client2"
+
+[package.metadata.component.dependencies]
+
+# Activate for profiling
+# [profile.release]
+# debug = true
