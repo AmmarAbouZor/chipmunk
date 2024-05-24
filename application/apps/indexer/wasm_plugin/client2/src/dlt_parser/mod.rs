@@ -7,7 +7,7 @@ use std::{cell::RefCell, ops::DerefMut};
 
 use crate::exports::host::indexer::parse2_client::{Error, GuestParser, ParseReturn};
 use crate::host::indexer::parsing::ParseYield;
-use crate::host::indexer::source_general::ByteSource;
+use crate::source_host::get_data;
 use dlt_core::{dlt, parse::dlt_message};
 
 use self::{formattable_msg::FormattableMessage, ft_scanner::FtScanner};
@@ -76,16 +76,13 @@ impl DltParser {
         &self,
         data_opt: &mut Option<Vec<u8>>,
         ft_scanner: &mut FtScanner,
-        source: &ByteSource,
         timestamp: Option<u64>,
     ) -> Result<ParseReturn, Error> {
         let data = match data_opt.as_ref() {
             Some(data) => data,
             None => {
                 self.cursor.set(0);
-                let bytes = source.read_next().map_err(|err| {
-                    Error::Parse(format!("Error while loading data. TODO TEMP. Error: {err}"))
-                })?;
+                let bytes = get_data();
                 *data_opt = Some(bytes);
                 data_opt.as_ref().unwrap()
             }
@@ -109,7 +106,7 @@ impl DltParser {
             Err(_) => {
                 // Load more data from source.
                 *data_opt = None;
-                self.parse_next_intern(data_opt, ft_scanner, source, timestamp)
+                self.parse_next_intern(data_opt, ft_scanner, timestamp)
             }
         }
     }
@@ -125,15 +122,11 @@ impl GuestParser for DltParser {
         }
     }
 
-    fn parse_next(
-        &self,
-        source: &ByteSource,
-        timestamp: Option<u64>,
-    ) -> Result<ParseReturn, Error> {
+    fn parse_next(&self, timestamp: Option<u64>) -> Result<ParseReturn, Error> {
         let mut data_opt = self.data.borrow_mut();
         let data_opt = data_opt.deref_mut();
         let mut ft_scanner = self.ft_scanner.borrow_mut();
 
-        self.parse_next_intern(data_opt, ft_scanner.deref_mut(), source, timestamp)
+        self.parse_next_intern(data_opt, ft_scanner.deref_mut(), timestamp)
     }
 }

@@ -29,6 +29,8 @@ impl GuestByteSource for FileSource {
         let mut buf = Vec::with_capacity(len);
         //TODO AAZ: Test the difference for this unsafe code call.
         // SAFETY: truncate is called on the buffer after read call with the read amount of bytes.
+        // Even with unwind after panic, this shouldn't cause undefined behavior since the vector has only bytes which
+        // don't have a special drop implementation.
         unsafe {
             buf.set_len(len);
         }

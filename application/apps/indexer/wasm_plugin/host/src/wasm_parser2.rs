@@ -2,17 +2,14 @@ use std::{slice, usize};
 
 use parsers::Parser;
 use wasmtime::{
-    component::{Component, Linker, Resource, ResourceAny},
+    component::{Component, Linker, ResourceAny},
     Config, Engine, Store,
 };
 use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiView};
 
 use crate::PluginParseMessage;
 
-use self::host::indexer::{
-    parsing::{Attachment, Error, ParseYield},
-    source_general::{Host, HostByteSource, SourceError},
-};
+use self::host::indexer::parsing::{Attachment, Error, ParseYield};
 
 const WASM_FILE_PATH: &str =
     "application/apps/indexer/wasm_plugin/client2/target/wasm32-wasi/release/client2.wasm";
@@ -20,9 +17,6 @@ const WASM_FILE_PATH: &str =
 //TODO AAZ: Make sure we need ownership to be borrowing here
 wasmtime::component::bindgen!({
     world: "parse2",
-    with: {
-        "host:indexer/source-general/byte-source": PhantomSource,
-    },
     ownership: Borrowing {
         duplicate_if_necessary: false
     },
@@ -59,28 +53,13 @@ impl WasiView for ParserState {
     }
 }
 
-pub struct PhantomSource;
+impl source_host::Host for ParserState {
+    fn get_data(&mut self) -> wasmtime::component::__internal::Vec<u8> {
+        let slice = unsafe { slice::from_raw_parts(self.slice_ptr as *const _, self.slice_len) };
 
-impl HostByteSource for ParserState {
-    fn read_next(
-        &mut self,
-        _self_: wasmtime::component::Resource<PhantomSource>,
-    ) -> Result<wasmtime::component::__internal::Vec<u8>, SourceError> {
-        //TODO AAZ: Try using the crate bytes instead of unsafe.
-        // SAFETY: slice is always valid because slice members are updated each time we parse is
-        // called and this method could be called only directly after that.
-        let current_slice =
-            unsafe { slice::from_raw_parts(self.slice_ptr as *const _, self.slice_len) };
-
-        Ok(current_slice.into())
-    }
-
-    fn drop(&mut self, _rep: wasmtime::component::Resource<PhantomSource>) -> wasmtime::Result<()> {
-        Ok(())
+        slice.into()
     }
 }
-
-impl Host for ParserState {}
 
 // Suppress unused fields here while prototyping
 #[allow(unused)]
@@ -91,7 +70,6 @@ pub struct WasmParser2 {
     store: Store<ParserState>,
     parse_translate: Parse2,
     parser_res: ResourceAny,
-    source_res: Resource<PhantomSource>,
 }
 
 impl Drop for WasmParser2 {
@@ -132,7 +110,7 @@ impl WasmParser2 {
         let mut linker = Linker::new(&engine);
         wasmtime_wasi::add_to_linker_async(&mut linker)?;
 
-        self::host::indexer::source_general::add_to_linker(&mut linker, |state| state).unwrap();
+        source_host::add_to_linker(&mut linker, |state| state).unwrap();
 
         let ctx = WasiCtxBuilder::new()
             .inherit_stdin()
@@ -142,8 +120,6 @@ impl WasmParser2 {
         let table = ResourceTable::new();
 
         let mut store = Store::new(&engine, ParserState::new(ctx, table));
-
-        let source_res = store.data_mut().table().push(PhantomSource).unwrap();
 
         let (parse_translate, _instance) =
             Parse2::instantiate_async(&mut store, &component, &linker).await?;
@@ -161,7 +137,6 @@ impl WasmParser2 {
             store,
             parse_translate,
             parser_res,
-            source_res,
         })
     }
 }
@@ -180,7 +155,6 @@ impl Parser<PluginParseMessage> for WasmParser2 {
             futures::executor::block_on(self.parse_translate.interface0.parser().call_parse_next(
                 &mut self.store,
                 self.parser_res,
-                Resource::new_borrow(self.source_res.rep()),
                 timestamp,
             ))
             .unwrap();

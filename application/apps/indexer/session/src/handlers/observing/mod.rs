@@ -43,6 +43,7 @@ pub mod stream;
 pub const FLUSH_TIMEOUT_IN_MS: u128 = 500;
 
 pub const USE_WASM_DLT_ENV: &str = "WASM_PARSE";
+pub const USE_WASM_DLT_ENV2: &str = "WASM_PARSE2";
 
 pub async fn run_source<S: ByteSource>(
     operation_api: OperationAPI,
@@ -69,8 +70,8 @@ pub async fn run_source<S: ByteSource>(
             run_producer(operation_api, state, source_id, producer, rx_tail).await
         }
         ParserType::Dlt(settings) => {
-            match env::var(USE_WASM_DLT_ENV) {
-                Ok(var) => {
+            match (env::var(USE_WASM_DLT_ENV), env::var(USE_WASM_DLT_ENV2)) {
+                (Ok(var), _) => {
                     println!("------------------------------------------------------");
                     println!("-------------    WASM parser used    -----------------");
                     println!("------------------------------------------------------");
@@ -105,7 +106,26 @@ pub async fn run_source<S: ByteSource>(
                     // println!("Producer Created");
                     run_producer(operation_api, state, source_id, producer, rx_tail).await
                 }
-                Err(_) => {
+                (_, Ok(_)) => {
+                    println!("------------------------------------------------------");
+                    println!("-------------    WASM parser2 used    -----------------");
+                    println!("------------------------------------------------------");
+                    //TODO: Add new error type for the plugins
+                    let wasm_parser = plugin_host::WasmParser2::create().await.map_err(|err| {
+                        dbg!(&err);
+                        NativeError {
+                            kind: NativeErrorKind::Io,
+                            severity: Severity::ERROR,
+                            message: Some(err.to_string()),
+                        }
+                    })?;
+                    // println!("Wasm Parser Created");
+
+                    let producer = MessageProducer::new(wasm_parser, source, rx_sde);
+                    // println!("Producer Created");
+                    run_producer(operation_api, state, source_id, producer, rx_tail).await
+                }
+                _ => {
                     println!("------------------------------------------------------");
                     println!("------------    NATIVE parser used    ----------------");
                     println!("------------------------------------------------------");

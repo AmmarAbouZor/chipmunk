@@ -51,15 +51,18 @@ world parse {
 
 interface parse2-client {
   use parsing.{error, parse-return};
-  use source-general.{byte-source};
 
   resource parser {
     constructor();
-    parse-next: func(source: borrow<byte-source>, timestamp: option<u64>) -> result<parse-return, error>;
+    parse-next: func(timestamp: option<u64>) -> result<parse-return, error>;
   }
 }
 
 world parse2{
+    import source-host: interface {
+      get-data: func() -> list<u8>;
+    }    
+
     export parse2-client;
 }
 
@@ -69,15 +72,6 @@ interface sourcing {
     other(string),
   }
 }
-
-interface source-general {
-  use sourcing.{source-error};
-
-  resource byte-source{
-    read-next: func() -> result<list<u8>, source-error>;
-  }
-}
-
 
 interface source-client {
   use sourcing.{source-error};
