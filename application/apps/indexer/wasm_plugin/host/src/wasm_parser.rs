@@ -122,6 +122,10 @@ impl WasmParser {
         config.wasm_component_model(true);
         config.async_support(true);
 
+        //TODO AAZ: Check the impact of these when we have a proper benchmarks
+        // config.relaxed_simd_deterministic(true);
+        // config.cranelift_opt_level(wasmtime::OptLevel::Speed);
+
         let engine = Engine::new(&config)?;
 
         let component = Component::from_file(&engine, wasm_path)?;

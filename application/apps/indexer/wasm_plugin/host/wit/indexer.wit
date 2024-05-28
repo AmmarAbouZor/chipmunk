@@ -87,7 +87,7 @@ world source {
 
 interface source-prod-client {
   use sourcing.{source-error};
-  use parsing.{error, parse-return};
+  use parsing.{};
   use parse-client.{parser};
 
   resource source-prod{
