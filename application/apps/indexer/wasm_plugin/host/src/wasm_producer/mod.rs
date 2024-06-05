@@ -196,7 +196,7 @@ impl WasmProducer {
         let raw_res = match queue.pop_front() {
             // In case of errors we send the whole slice again. This could be optimized to reduce
             // the calls to wasm
-            None | Some(Err(Error::Parse(_))) | Some(Err(Error::Incomplete)) => {
+            None | Some(Err(_)) => {
                 self.source_prod_translate
                     .interface0
                     .source_prod()
@@ -217,7 +217,7 @@ impl WasmProducer {
                     .unwrap();
                 self.read_count = 0;
                 let queue = &mut self.store.data_mut().queue;
-                queue.pop_front().unwrap()
+                queue.pop_front()?
             }
             Some(res) => res,
         };

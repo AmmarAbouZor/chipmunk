@@ -2,7 +2,6 @@ use std::{
     cell::{Cell, RefCell},
     fs::File,
     io::{BufReader, Read},
-    usize,
 };
 
 use crate::{
@@ -75,7 +74,9 @@ impl GuestSourceProd for FileSourceProd {
 
         self.last_read_len.set(bytes_read as u64);
 
-        self.parser.parse_res(&buf, timestamp);
+        if bytes_read != 0 {
+            self.parser.parse_res(&buf, timestamp);
+        }
 
         Ok(())
     }
