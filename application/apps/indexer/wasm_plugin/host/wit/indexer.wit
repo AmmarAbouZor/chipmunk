@@ -1,5 +1,7 @@
 package host:indexer;
 
+// *** PARSER ***
+// Types definitions and methods provided be the host.
 interface parsing {
   record parse-return {
     value: option<parse-yield>,
@@ -32,6 +34,9 @@ interface parsing {
   add-range: func(items: list<result<parse-return, error>>);
 }
 
+// Parse client using resources. 
+// We define an interface as resource here and define its functions which must be implemented  
+// by the client and can be called from the host.
 interface parse-client {
   use parsing.{error, parse-return};
 
@@ -43,10 +48,15 @@ interface parse-client {
   }
 }
 
+// World for the client which is using resource as an interface.
 world parse {
   export parse-client;
 }
 
+// Parse client using an interface without resources.
+// With this approach, the host doesn't need to instantiate the parser but the parser
+// doesn't have a reference to itself on the method and must save it's state using statics 
+// This approach is less performant than the ratio `1.04`
 interface parse-client-inter {
   use parsing.{error, parse-return};
 
@@ -55,10 +65,15 @@ interface parse-client-inter {
   parse-res: func(data: list<u8>, timestamp: option<u64>);
 }
 
+// World for the client which is not using resource as an interface.
 world parse-inter {
   export parse-client-inter;
 }
 
+// Parse Client that caches the bytes, returning one parse item at a time. 
+// It calls the host for more bytes when it doesn't have more bytes to parse.
+// This approach is far less performant as the ones who return all the items at once to 
+// be cached by the source. They are about 6 times slower.
 interface parse2-client {
   use parsing.{error, parse-return};
 
@@ -68,6 +83,7 @@ interface parse2-client {
   }
 }
 
+// World for the client which caches the bytes buffer in it, returning one result at a time.
 world parse2{
     import source-host: interface {
       get-data: func() -> list<u8>;
@@ -76,6 +92,9 @@ world parse2{
     export parse2-client;
 }
 
+
+// *** BYTE-SOURCE ***
+// Type definitions for parsing to be used by the host and the clients
 interface sourcing {
   variant source-error {
     io(string),
@@ -83,6 +102,7 @@ interface sourcing {
   }
 }
 
+// Byte Source client definitions that must be implemented by the client and can be called from the host.
 interface source-client {
   use sourcing.{source-error};
 
@@ -97,6 +117,9 @@ world source {
   export source-client;
 }
 
+// Byte Source Client that does the buffering too, and instantiate a parser client from to call parse on it.
+// This interface needs a parser client besides the host function and can be composed with a parser plugin to 
+// produce a plugin that read that data, parse them, then sends the parse results to the host.
 interface source-prod-client {
   use sourcing.{source-error};
   use parsing.{};
