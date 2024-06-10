@@ -11,6 +11,7 @@ use dlt_core::{dlt, parse::dlt_message};
 
 use self::{formattable_msg::FormattableMessage, ft_scanner::FtScanner};
 
+#[derive(Debug)]
 pub struct DltParser {
     pub with_storage_header: bool,
     ft_scanner: Mutex<FtScanner>,

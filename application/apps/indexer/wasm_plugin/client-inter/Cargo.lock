@@ -98,7 +98,6 @@ dependencies = [
  "chrono",
  "dlt-core",
  "humantime",
- "lazy_static",
  "serde",
  "wit-bindgen",
  "wit-bindgen-rt",

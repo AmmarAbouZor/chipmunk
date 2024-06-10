@@ -1,9 +1,10 @@
 mod dlt_parser;
 
+use std::sync::OnceLock;
+
 use dlt_parser::DltParser;
 use exports::host::indexer::parse_client_inter::Guest;
 use host::indexer::parsing::{Error, ParseReturn};
-use lazy_static::lazy_static;
 use wit_bindgen::generate;
 
 generate!({
@@ -14,23 +15,24 @@ generate!({
     },
 });
 
-lazy_static! {
-    static ref PARSER: DltParser = DltParser::new();
-}
+static PARSER: OnceLock<DltParser> = OnceLock::new();
 
 struct Component;
 
 impl Guest for Component {
     fn init(configs: _rt::String) -> Result<(), Error> {
-        Ok(PARSER.init(configs))
+        let parser = DltParser::new();
+        parser.init(configs);
+        PARSER.set(parser).unwrap();
+        Ok(())
     }
 
     fn parse(data: _rt::Vec<u8>, timestamp: Option<u64>) -> _rt::Vec<Result<ParseReturn, Error>> {
-        PARSER.parse(data, timestamp)
+        PARSER.get().unwrap().parse(data, timestamp)
     }
 
     fn parse_res(data: _rt::Vec<u8>, timestamp: Option<u64>) {
-        PARSER.parse_res(data, timestamp)
+        PARSER.get().unwrap().parse_res(data, timestamp)
     }
 }
 

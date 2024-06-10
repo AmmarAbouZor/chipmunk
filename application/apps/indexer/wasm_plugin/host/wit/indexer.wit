@@ -56,7 +56,7 @@ world parse {
 // Parse client using an interface without resources.
 // With this approach, the host doesn't need to instantiate the parser but the parser
 // doesn't have a reference to itself on the method and must save it's state using statics 
-// This approach is less performant than the ratio `1.04`
+// This approach's perfrmance is similar to the parser interface as resource approach
 interface parse-client-inter {
   use parsing.{error, parse-return};
 

@@ -14,7 +14,6 @@ dlt-core = { path = "../../../../../../dlt-core" }
 serde = "1.0.201"
 chrono = "0.4.38"
 humantime = "2.1.0"
-lazy_static = "1.4.0"
 
 [lib]
 crate-type = ["cdylib"]
