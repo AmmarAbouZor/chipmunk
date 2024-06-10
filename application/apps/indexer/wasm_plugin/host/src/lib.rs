@@ -1,6 +1,7 @@
 mod wasm_bytesource;
 mod wasm_parser;
 mod wasm_parser2;
+mod wasm_parser_inter;
 mod wasm_producer;
 
 use std::fmt::Display;
@@ -12,6 +13,7 @@ use wasmtime_wasi::{ResourceTable, WasiCtx, WasiView};
 pub use wasm_bytesource::WasmByteSource;
 pub use wasm_parser::WasmParser;
 pub use wasm_parser2::WasmParser2;
+pub use wasm_parser_inter::WasmParserInter;
 pub use wasm_producer::wrapper::WasmProducerWrapper;
 
 /// Represents which method should be used with the parsing. This is used in the experimental phase  

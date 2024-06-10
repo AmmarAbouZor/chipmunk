@@ -43,6 +43,7 @@ pub mod stream;
 pub const FLUSH_TIMEOUT_IN_MS: u128 = 500;
 
 pub const USE_WASM_DLT_ENV: &str = "WASM_PARSE";
+pub const USE_WASM_ITNERFACE_DLT_ENV: &str = "WASM_PARSE_INTER";
 pub const USE_WASM_DLT_ENV2: &str = "WASM_PARSE2";
 
 pub async fn run_source<S: ByteSource>(
@@ -70,8 +71,12 @@ pub async fn run_source<S: ByteSource>(
             run_producer(operation_api, state, source_id, producer, rx_tail).await
         }
         ParserType::Dlt(settings) => {
-            match (env::var(USE_WASM_DLT_ENV), env::var(USE_WASM_DLT_ENV2)) {
-                (Ok(var), _) => {
+            match (
+                env::var(USE_WASM_DLT_ENV),
+                env::var(USE_WASM_DLT_ENV2),
+                env::var(USE_WASM_ITNERFACE_DLT_ENV),
+            ) {
+                (Ok(var), _, _) => {
                     println!("------------------------------------------------------");
                     println!("-------------    WASM parser used    -----------------");
                     println!("------------------------------------------------------");
@@ -106,7 +111,7 @@ pub async fn run_source<S: ByteSource>(
                     // println!("Producer Created");
                     run_producer(operation_api, state, source_id, producer, rx_tail).await
                 }
-                (_, Ok(_)) => {
+                (_, Ok(_), _) => {
                     println!("------------------------------------------------------");
                     println!("-------------    WASM parser2 used    -----------------");
                     println!("------------------------------------------------------");
@@ -119,6 +124,41 @@ pub async fn run_source<S: ByteSource>(
                             message: Some(err.to_string()),
                         }
                     })?;
+                    // println!("Wasm Parser Created");
+
+                    let producer = MessageProducer::new(wasm_parser, source, rx_sde);
+                    // println!("Producer Created");
+                    run_producer(operation_api, state, source_id, producer, rx_tail).await
+                }
+                (_, _, Ok(var)) => {
+                    println!("------------------------------------------------------");
+                    println!("----------  WASM parser itnerface used   -------------");
+                    println!("------------------------------------------------------");
+                    let method = match var.as_str() {
+                        "vec" => plugin_host::ParseMethod::ReturnVec,
+                        "res_s" => plugin_host::ParseMethod::ResSingle,
+                        "res_r" => plugin_host::ParseMethod::ResRange,
+                        invalid => unreachable!("Invalid WASM ENV var: {invalid}"),
+                    };
+
+                    println!(
+                        "Parse Mehtod is currently always: {}",
+                        plugin_host::ParseMethod::ResSingle
+                    );
+                    // println!("Parse Mehtod: {method}");
+
+                    let dummy_path = PathBuf::from(".");
+                    //TODO: Add new error type for the plugins
+                    let wasm_parser = plugin_host::WasmParserInter::create(dummy_path, method)
+                        .await
+                        .map_err(|err| {
+                            dbg!(&err);
+                            NativeError {
+                                kind: NativeErrorKind::Io,
+                                severity: Severity::ERROR,
+                                message: Some(err.to_string()),
+                            }
+                        })?;
                     // println!("Wasm Parser Created");
 
                     let producer = MessageProducer::new(wasm_parser, source, rx_sde);
