@@ -1,4 +1,4 @@
-package host:indexer;
+package host:indexer@0.1.0;
 
 // *** PARSER ***
 // Types definitions and methods provided be the host.

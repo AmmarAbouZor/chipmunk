@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, path::Path, usize};
+use std::{collections::VecDeque, path::Path};
 
 use parsers::Parser;
 use wasmtime::{
@@ -129,6 +129,15 @@ impl WasmParser {
         let engine = Engine::new(&config)?;
 
         let component = Component::from_file(&engine, wasm_path)?;
+
+        let component_types = component.component_type();
+
+        println!("Printing component exports info:");
+        for export_infos in component_types.exports(&engine) {
+            dbg!(export_infos);
+        }
+
+        println!("----------------------------------------");
 
         let mut linker = Linker::new(&engine);
         wasmtime_wasi::add_to_linker_async(&mut linker)?;
