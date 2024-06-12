@@ -2037,6 +2037,7 @@ dependencies = [
  "someip-payload",
  "stringreader",
  "thiserror",
+ "tokio",
 ]
 
 [[package]]

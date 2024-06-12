@@ -142,7 +142,7 @@ impl WasmParser2 {
 }
 
 impl Parser<PluginParseMessage> for WasmParser2 {
-    fn parse<'a>(
+    async fn parse<'a>(
         &mut self,
         input: &'a [u8],
         timestamp: Option<u64>,
@@ -151,12 +151,12 @@ impl Parser<PluginParseMessage> for WasmParser2 {
         state.slice_ptr = input.as_ptr() as usize;
         state.slice_len = input.len();
 
-        let raw_res =
-            futures::executor::block_on(self.parse_translate.interface0.parser().call_parse_next(
-                &mut self.store,
-                self.parser_res,
-                timestamp,
-            ))
+        let raw_res = self
+            .parse_translate
+            .interface0
+            .parser()
+            .call_parse_next(&mut self.store, self.parser_res, timestamp)
+            .await
             .unwrap();
 
         match raw_res {

@@ -159,8 +159,8 @@ async fn export<S: ByteSource>(
             let fmt_options = Some(FormatOptions::from(settings.tz.as_ref()));
             let parser = DltParser::new(
                 settings.filter_config.as_ref().map(|f| f.into()),
-                settings.fibex_metadata.as_ref(),
-                fmt_options.as_ref(),
+                settings.fibex_metadata.clone(),
+                fmt_options,
                 settings.with_storage_header,
             );
             let mut producer = MessageProducer::new(parser, source, None);

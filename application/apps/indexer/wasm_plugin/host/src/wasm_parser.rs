@@ -171,7 +171,7 @@ impl WasmParser {
     }
 
     #[inline]
-    fn parse_with_list<'a>(
+    async fn parse_with_list<'a>(
         &mut self,
         input: &'a [u8],
         timestamp: Option<u64>,
@@ -180,19 +180,17 @@ impl WasmParser {
             // In case of errors we send the whole slice again. This could be optimized to reduce
             // the calls to wasm
             None | Some(Err(Error::Parse(_))) | Some(Err(Error::Incomplete)) => {
-                let results = futures::executor::block_on(
-                    self.parse_translate.interface0.parser().call_parse(
-                        &mut self.store,
-                        self.parser_res,
-                        input,
-                        timestamp,
-                    ),
-                )
-                //TODO: Change this after implementing error definitions
-                .map_err(|err| {
-                    println!("TODO AAZ: Early Error: {err}");
-                    parsers::Error::Parse(err.to_string())
-                })?;
+                let results = self
+                    .parse_translate
+                    .interface0
+                    .parser()
+                    .call_parse(&mut self.store, self.parser_res, input, timestamp)
+                    .await
+                    //TODO: Change this after implementing error definitions
+                    .map_err(|err| {
+                        println!("TODO AAZ: Early Error: {err}");
+                        parsers::Error::Parse(err.to_string())
+                    })?;
                 self.cache = results.into();
                 self.cache
                     .pop_front()
@@ -217,103 +215,101 @@ impl WasmParser {
     }
 
     #[inline]
-    fn parse_with_res<'a>(
+    async fn parse_with_res<'a>(
         &mut self,
         input: &'a [u8],
         timestamp: Option<u64>,
     ) -> Result<(&'a [u8], Option<parsers::ParseYield<PluginParseMessage>>), parsers::Error> {
-        let queue = &mut self.store.data_mut().queue;
-        let raw_res = match queue.pop_front() {
-            // In case of errors we send the whole slice again. This could be optimized to reduce
-            // the calls to wasm
-            None | Some(Err(Error::Parse(_))) | Some(Err(Error::Incomplete)) => {
-                futures::executor::block_on(
-                    self.parse_translate.interface0.parser().call_parse_res(
-                        &mut self.store,
-                        self.parser_res,
-                        input,
-                        timestamp,
-                    ),
-                )
-                //TODO: Change this after implementing error definitions
-                .map_err(|err| {
-                    println!("TODO AAZ: Early Error: {err}");
-                    parsers::Error::Parse(err.to_string())
-                })?;
-                return self.parse_with_res(input, timestamp);
-            }
-            Some(res) => res,
-        };
+        loop {
+            let queue = &mut self.store.data_mut().queue;
+            let raw_res = match queue.pop_front() {
+                // In case of errors we send the whole slice again. This could be optimized to reduce
+                // the calls to wasm
+                None | Some(Err(Error::Parse(_))) | Some(Err(Error::Incomplete)) => {
+                    self.parse_translate
+                        .interface0
+                        .parser()
+                        .call_parse_res(&mut self.store, self.parser_res, input, timestamp)
+                        .await
+                        //TODO: Change this after implementing error definitions
+                        .map_err(|err| {
+                            println!("TODO AAZ: Early Error: {err}");
+                            parsers::Error::Parse(err.to_string())
+                        })?;
+                    continue;
+                }
+                Some(res) => res,
+            };
 
-        match raw_res {
-            Ok(val) => {
-                let remain = &input[val.cursor as usize..];
-                let yld = val.value.map(|y| y.into_parsers_yield());
+            match raw_res {
+                Ok(val) => {
+                    let remain = &input[val.cursor as usize..];
+                    let yld = val.value.map(|y| y.into_parsers_yield());
 
-                Ok((remain, yld))
-            }
-            Err(err) => {
-                let err = err.into_parsers_err();
-                // println!("TODO AAZ: Error: {err}");
-                Err(err)
+                    return Ok((remain, yld));
+                }
+                Err(err) => {
+                    let err = err.into_parsers_err();
+                    // println!("TODO AAZ: Error: {err}");
+                    return Err(err);
+                }
             }
         }
     }
 
     #[inline]
-    fn parse_with_res_rng<'a>(
+    async fn parse_with_res_rng<'a>(
         &mut self,
         input: &'a [u8],
         timestamp: Option<u64>,
     ) -> Result<(&'a [u8], Option<parsers::ParseYield<PluginParseMessage>>), parsers::Error> {
-        let queue = &mut self.store.data_mut().queue;
-        let raw_res = match queue.pop_front() {
-            // In case of errors we send the whole slice again. This could be optimized to reduce
-            // the calls to wasm
-            None | Some(Err(Error::Parse(_))) | Some(Err(Error::Incomplete)) => {
-                futures::executor::block_on(
-                    self.parse_translate.interface0.parser().call_parse_res_rng(
-                        &mut self.store,
-                        self.parser_res,
-                        input,
-                        timestamp,
-                    ),
-                )
-                //TODO: Change this after implementing error definitions
-                .map_err(|err| {
-                    println!("TODO AAZ: Early Error: {err}");
-                    parsers::Error::Parse(err.to_string())
-                })?;
-                return self.parse_with_res_rng(input, timestamp);
-            }
-            Some(res) => res,
-        };
+        loop {
+            let queue = &mut self.store.data_mut().queue;
+            let raw_res = match queue.pop_front() {
+                // In case of errors we send the whole slice again. This could be optimized to reduce
+                // the calls to wasm
+                None | Some(Err(Error::Parse(_))) | Some(Err(Error::Incomplete)) => {
+                    self.parse_translate
+                        .interface0
+                        .parser()
+                        .call_parse_res_rng(&mut self.store, self.parser_res, input, timestamp)
+                        .await
+                        //TODO: Change this after implementing error definitions
+                        .map_err(|err| {
+                            println!("TODO AAZ: Early Error: {err}");
+                            parsers::Error::Parse(err.to_string())
+                        })?;
+                    continue;
+                }
+                Some(res) => res,
+            };
 
-        match raw_res {
-            Ok(val) => {
-                let remain = &input[val.cursor as usize..];
-                let yld = val.value.map(|y| y.into_parsers_yield());
+            match raw_res {
+                Ok(val) => {
+                    let remain = &input[val.cursor as usize..];
+                    let yld = val.value.map(|y| y.into_parsers_yield());
 
-                Ok((remain, yld))
-            }
-            Err(err) => {
-                let err = err.into_parsers_err();
-                // println!("TODO AAZ: Error: {err}");
-                Err(err)
+                    return Ok((remain, yld));
+                }
+                Err(err) => {
+                    let err = err.into_parsers_err();
+                    // println!("TODO AAZ: Error: {err}");
+                    return Err(err);
+                }
             }
         }
     }
 }
 
 impl Parser<PluginParseMessage> for WasmParser {
-    fn parse<'a>(
+    async fn parse<'a>(
         &mut self,
         input: &'a [u8],
         timestamp: Option<u64>,
     ) -> Result<(&'a [u8], Option<parsers::ParseYield<PluginParseMessage>>), parsers::Error> {
         //TODO AAZ: Currently I'm using parse_with_res because it has the best perfomance on my
         //machine, but I need to test the other approaches on another machine
-        self.parse_with_res(input, timestamp)
+        self.parse_with_res(input, timestamp).await
         // match self.method {
         //     ParseMethod::ReturnVec => self.parse_with_list(input, timestamp),
         //     ParseMethod::ResSingle => self.parse_with_res(input, timestamp),

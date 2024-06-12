@@ -27,7 +27,7 @@ impl Parser<StringMessage> for StringTokenizer
 where
     StringMessage: LogMessage,
 {
-    fn parse<'b>(
+    async fn parse<'b>(
         &mut self,
         input: &'b [u8],
         _timestamp: Option<u64>,
@@ -54,22 +54,28 @@ where
     }
 }
 
-#[test]
-fn test_string_tokenizer() {
-    let mut parser = StringTokenizer {};
-    let content = b"hello\nworld\n";
-    let (rest_1, first_msg) = parser.parse(content, None).unwrap();
-    match first_msg {
-        Some(ParseYield::Message(StringMessage { content })) if content.eq("hello") => {}
-        _ => panic!("First message did not match"),
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_string_tokenizer() {
+        let mut parser = StringTokenizer {};
+        let content = b"hello\nworld\n";
+        let (rest_1, first_msg) = parser.parse(content, None).await.unwrap();
+        match first_msg {
+            Some(ParseYield::Message(StringMessage { content })) if content.eq("hello") => {}
+            _ => panic!("First message did not match"),
+        }
+        println!("rest_1 = {:?}", String::from_utf8_lossy(rest_1));
+        let (rest_2, second_msg) = parser.parse(rest_1, None).await.unwrap();
+        match second_msg {
+            Some(ParseYield::Message(StringMessage { content })) if content.eq("world") => {}
+            _ => panic!("Second message did not match"),
+        }
+        let (rest_3, third_msg) = parser.parse(rest_2, None).await.unwrap();
+        println!("rest_3 = {:?}", String::from_utf8_lossy(rest_3));
+        assert!(third_msg.is_none());
     }
-    println!("rest_1 = {:?}", String::from_utf8_lossy(rest_1));
-    let (rest_2, second_msg) = parser.parse(rest_1, None).unwrap();
-    match second_msg {
-        Some(ParseYield::Message(StringMessage { content })) if content.eq("world") => {}
-        _ => panic!("Second message did not match"),
-    }
-    let (rest_3, third_msg) = parser.parse(rest_2, None).unwrap();
-    println!("rest_3 = {:?}", String::from_utf8_lossy(rest_3));
-    assert!(third_msg.is_none());
 }

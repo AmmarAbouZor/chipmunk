@@ -48,7 +48,7 @@ pub async fn export_raw<S, T>(
     cancel: &CancellationToken,
 ) -> Result<usize, ExportError>
 where
-    T: LogMessage + Sized,
+    T: LogMessage,
     S: futures::Stream<Item = (usize, MessageStreamItem<T>)> + Unpin,
 {
     trace!("export_raw, sections: {sections:?}");

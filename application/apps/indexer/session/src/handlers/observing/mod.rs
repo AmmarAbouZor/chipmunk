@@ -172,8 +172,8 @@ pub async fn run_source<S: ByteSource>(
                     let fmt_options = Some(FormatOptions::from(settings.tz.as_ref()));
                     let dlt_parser = DltParser::new(
                         settings.filter_config.as_ref().map(|f| f.into()),
-                        settings.fibex_metadata.as_ref(),
-                        fmt_options.as_ref(),
+                        settings.fibex_metadata.clone(),
+                        fmt_options.clone(),
                         settings.with_storage_header,
                     );
                     let producer = MessageProducer::new(dlt_parser, source, rx_sde);

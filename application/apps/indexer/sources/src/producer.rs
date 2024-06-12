@@ -133,6 +133,7 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
             match self
                 .parser
                 .parse(self.byte_source.current_slice(), self.last_seen_ts)
+                .await
             {
                 Ok((rest, Some(m))) => {
                     let consumed = available - rest.len();

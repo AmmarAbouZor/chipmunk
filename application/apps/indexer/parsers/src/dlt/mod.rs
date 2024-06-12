@@ -13,11 +13,11 @@ use dlt_core::{
     parse::{dlt_consume_msg, dlt_message},
 };
 use serde::Serialize;
-use std::{io::Write, ops::Range};
+use std::{io::Write, ops::Range, sync::Arc};
 
 use self::{attachment::FtScanner, fmt::FormatOptions};
 
-impl LogMessage for FormattableMessage<'_> {
+impl LogMessage for FormattableMessage {
     fn to_writer<W: Write>(&self, writer: &mut W) -> Result<usize, std::io::Error> {
         let bytes = self.message.as_bytes();
         let len = bytes.len();
@@ -66,10 +66,10 @@ impl LogMessage for RawMessage {
 
 #[derive(Default)]
 //TODO AAZ: This is the parser that should be replaced
-pub struct DltParser<'m> {
+pub struct DltParser {
     pub filter_config: Option<ProcessedDltFilterConfig>,
-    pub fibex_metadata: Option<&'m FibexMetadata>,
-    pub fmt_options: Option<&'m FormatOptions>,
+    pub fibex_metadata: Option<Arc<FibexMetadata>>,
+    pub fmt_options: Option<Arc<FormatOptions>>,
     pub with_storage_header: bool,
     ft_scanner: FtScanner,
     offset: usize,
@@ -98,30 +98,30 @@ impl DltRangeParser {
     }
 }
 
-impl<'m> DltParser<'m> {
+impl DltParser {
     pub fn new(
         filter_config: Option<ProcessedDltFilterConfig>,
-        fibex_metadata: Option<&'m FibexMetadata>,
-        fmt_options: Option<&'m FormatOptions>,
+        fibex_metadata: Option<FibexMetadata>,
+        fmt_options: Option<FormatOptions>,
         with_storage_header: bool,
     ) -> Self {
         Self {
             filter_config,
-            fibex_metadata,
+            fibex_metadata: fibex_metadata.map(Arc::new),
             with_storage_header,
-            fmt_options,
+            fmt_options: fmt_options.map(Arc::new),
             ft_scanner: FtScanner::new(),
             offset: 0,
         }
     }
 }
 
-impl<'m> Parser<FormattableMessage<'m>> for DltParser<'m> {
-    fn parse<'b>(
+impl Parser<FormattableMessage> for DltParser {
+    async fn parse<'a>(
         &mut self,
-        input: &'b [u8],
+        input: &'a [u8],
         timestamp: Option<u64>,
-    ) -> Result<(&'b [u8], Option<ParseYield<FormattableMessage<'m>>>), Error> {
+    ) -> Result<(&'a [u8], Option<ParseYield<FormattableMessage>>), Error> {
         match dlt_message(input, self.filter_config.as_ref(), self.with_storage_header)
             .map_err(|e| Error::Parse(format!("{e}")))?
         {
@@ -142,8 +142,8 @@ impl<'m> Parser<FormattableMessage<'m>> for DltParser<'m> {
 
                 let msg = FormattableMessage {
                     message: msg_with_storage_header,
-                    fibex_metadata: self.fibex_metadata,
-                    options: self.fmt_options,
+                    fibex_metadata: self.fibex_metadata.clone(),
+                    options: self.fmt_options.clone(),
                 };
                 self.offset += input.len() - rest.len();
                 Ok((
@@ -160,7 +160,7 @@ impl<'m> Parser<FormattableMessage<'m>> for DltParser<'m> {
 }
 
 impl Parser<RangeMessage> for DltRangeParser {
-    fn parse<'b>(
+    async fn parse<'b>(
         &mut self,
         input: &'b [u8],
         _timestamp: Option<u64>,
@@ -180,7 +180,7 @@ impl Parser<RangeMessage> for DltRangeParser {
 }
 
 impl Parser<RawMessage> for DltRawParser {
-    fn parse<'b>(
+    async fn parse<'b>(
         &mut self,
         input: &'b [u8],
         _timestamp: Option<u64>,

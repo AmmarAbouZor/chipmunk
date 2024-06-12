@@ -25,7 +25,7 @@ pub enum ParseYield<T> {
     MessageAndAttachment((T, Attachment)),
 }
 
-impl<T> From<T> for ParseYield<T> {
+impl<T: Send + Unpin> From<T> for ParseYield<T> {
     fn from(item: T) -> Self {
         Self::Message(item)
     }
@@ -44,7 +44,7 @@ pub trait Parser<T> {
         &mut self,
         input: &'a [u8],
         timestamp: Option<u64>,
-    ) -> Result<(&'a [u8], Option<ParseYield<T>>), Error>;
+    ) -> impl std::future::Future<Output = Result<(&'a [u8], Option<ParseYield<T>>), Error>> + Send;
 }
 
 #[derive(Debug, Clone, Serialize)]

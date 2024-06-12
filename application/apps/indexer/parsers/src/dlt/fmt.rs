@@ -30,6 +30,7 @@ use serde::ser::{Serialize, SerializeStruct, Serializer};
 use std::{
     fmt::{self, Formatter},
     str,
+    sync::Arc,
 };
 
 const DLT_COLUMN_SENTINAL: char = '\u{0004}';
@@ -194,13 +195,13 @@ impl From<Option<&String>> for FormatOptions {
 }
 
 /// A dlt message that can be formatted with optional FIBEX data support
-pub struct FormattableMessage<'a> {
+pub struct FormattableMessage {
     pub message: Message,
-    pub fibex_metadata: Option<&'a FibexMetadata>,
-    pub options: Option<&'a FormatOptions>,
+    pub fibex_metadata: Option<Arc<FibexMetadata>>,
+    pub options: Option<Arc<FormatOptions>>,
 }
 
-impl<'a> Serialize for FormattableMessage<'a> {
+impl Serialize for FormattableMessage {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -286,7 +287,7 @@ impl<'a> Serialize for FormattableMessage<'a> {
     }
 }
 
-impl<'a> From<Message> for FormattableMessage<'a> {
+impl From<Message> for FormattableMessage {
     fn from(message: Message) -> Self {
         FormattableMessage {
             message,
@@ -319,7 +320,7 @@ impl<'a> PrintableMessage<'a> {
     }
 }
 
-impl<'a> FormattableMessage<'a> {
+impl FormattableMessage {
     pub fn printable_parts<'b>(
         &'b self,
         ext_h_app_id: &'b str,
@@ -462,7 +463,7 @@ impl<'a> FormattableMessage<'a> {
     }
 
     fn info_from_metadata<'b>(&'b self, id: u32, data: &[u8]) -> Option<NonVerboseInfo<'b>> {
-        let fibex = self.fibex_metadata?;
+        let fibex = self.fibex_metadata.as_ref()?;
         let md = extract_metadata(fibex, id, self.message.extended_header.as_ref())?;
         let msg_type: Option<MessageType> = message_type(&self.message, md.message_info.as_deref());
         let app_id = md.application_id.as_deref().or_else(|| {
@@ -511,7 +512,7 @@ impl<'a> FormattableMessage<'a> {
     }
 }
 
-impl<'a> fmt::Display for FormattableMessage<'a> {
+impl fmt::Display for FormattableMessage {
     /// will format dlt Message with those fields:
     /// ********* storage-header ********
     /// date-time
@@ -530,7 +531,7 @@ impl<'a> fmt::Display for FormattableMessage<'a> {
     /// payload
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         if let Some(h) = &self.message.storage_header {
-            let tz = self.options.map(|o| o.tz);
+            let tz = self.options.as_ref().map(|o| o.tz);
             match tz {
                 Some(Some(tz)) => {
                     write_tz_string(f, &h.timestamp, &tz)?;

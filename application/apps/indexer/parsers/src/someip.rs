@@ -49,7 +49,7 @@ unsafe impl Send for SomeipParser {}
 unsafe impl Sync for SomeipParser {}
 
 impl Parser<SomeipLogMessage> for SomeipParser {
-    fn parse<'a>(
+    async fn parse<'a>(
         &mut self,
         input: &'a [u8],
         timestamp: Option<u64>,
@@ -397,8 +397,8 @@ mod test {
         FibexParser::parse(vec![reader]).expect("parse failed")
     }
 
-    #[test]
-    fn parse_cookie_client() {
+    #[tokio::test]
+    async fn parse_cookie_client() {
         let input: &[u8] = &[
             0xFF, 0xFF, 0x00, 0x00, // serviceId(u16), methodId(u16)
             0x00, 0x00, 0x00, 0x08, // length(u32)
@@ -407,7 +407,7 @@ mod test {
         ];
 
         let mut parser = SomeipParser::new();
-        let (output, message) = parser.parse(input, None).unwrap();
+        let (output, message) = parser.parse(input, None).await.unwrap();
 
         assert!(output.is_empty());
 
@@ -418,8 +418,8 @@ mod test {
         }
     }
 
-    #[test]
-    fn parse_cookie_server() {
+    #[tokio::test]
+    async fn parse_cookie_server() {
         let input: &[u8] = &[
             0xFF, 0xFF, 0x80, 0x00, // serviceId(u16), methodId(u16)
             0x00, 0x00, 0x00, 0x08, // length(u32)
@@ -428,7 +428,7 @@ mod test {
         ];
 
         let mut parser = SomeipParser::new();
-        let (output, message) = parser.parse(input, None).unwrap();
+        let (output, message) = parser.parse(input, None).await.unwrap();
 
         assert!(output.is_empty());
 
@@ -439,8 +439,8 @@ mod test {
         }
     }
 
-    #[test]
-    fn parse_empty_rpc_message_no_model() {
+    #[tokio::test]
+    async fn parse_empty_rpc_message_no_model() {
         let input: &[u8] = &[
             0x01, 0x03, 0x80, 0x04, // serviceId(u16), methodId(u16)
             0x00, 0x00, 0x00, 0x08, // length(u32)
@@ -449,7 +449,7 @@ mod test {
         ];
 
         let mut parser = SomeipParser::new();
-        let (output, message) = parser.parse(input, None).unwrap();
+        let (output, message) = parser.parse(input, None).await.unwrap();
 
         assert!(output.is_empty());
 
@@ -462,8 +462,8 @@ mod test {
         }
     }
 
-    #[test]
-    fn parse_empty_rpc_message() {
+    #[tokio::test]
+    async fn parse_empty_rpc_message() {
         let input: &[u8] = &[
             0x01, 0x03, 0x80, 0x04, // serviceId(u16), methodId(u16)
             0x00, 0x00, 0x00, 0x08, // length(u32)
@@ -474,7 +474,7 @@ mod test {
         let model = test_model();
 
         let mut parser = SomeipParser { model: Some(model) };
-        let (output, message) = parser.parse(input, None).unwrap();
+        let (output, message) = parser.parse(input, None).await.unwrap();
 
         assert!(output.is_empty());
 
@@ -487,8 +487,8 @@ mod test {
         }
     }
 
-    #[test]
-    fn parse_rpc_message_no_model() {
+    #[tokio::test]
+    async fn parse_rpc_message_no_model() {
         let input: &[u8] = &[
             0x01, 0x03, 0x80, 0x05, // serviceId(u16), methodId(u16)
             0x00, 0x00, 0x00, 0x0A, // length(u32)
@@ -498,7 +498,7 @@ mod test {
         ];
 
         let mut parser = SomeipParser::new();
-        let (output, message) = parser.parse(input, None).unwrap();
+        let (output, message) = parser.parse(input, None).await.unwrap();
 
         assert!(output.is_empty());
 
@@ -511,8 +511,8 @@ mod test {
         }
     }
 
-    #[test]
-    fn parse_rpc_message() {
+    #[tokio::test]
+    async fn parse_rpc_message() {
         let input: &[u8] = &[
             0x01, 0x03, 0x80, 0x05, // serviceId(u16), methodId(u16)
             0x00, 0x00, 0x00, 0x0A, // length(u32)
@@ -524,7 +524,7 @@ mod test {
         let model = test_model();
 
         let mut parser = SomeipParser { model: Some(model) };
-        let (output, message) = parser.parse(input, None).unwrap();
+        let (output, message) = parser.parse(input, None).await.unwrap();
 
         assert!(output.is_empty());
 
@@ -537,8 +537,8 @@ mod test {
         }
     }
 
-    #[test]
-    fn parse_empty_sd_message() {
+    #[tokio::test]
+    async fn parse_empty_sd_message() {
         let input: &[u8] = &[
             0xFF, 0xFF, 0x81, 0x00, // serviceId(u16), methodId(u16)
             0x00, 0x00, 0x00, 0x14, // length(u32)
@@ -550,7 +550,7 @@ mod test {
         ];
 
         let mut parser = SomeipParser::new();
-        let (output, message) = parser.parse(input, None).unwrap();
+        let (output, message) = parser.parse(input, None).await.unwrap();
 
         assert!(output.is_empty());
 
@@ -563,8 +563,8 @@ mod test {
         }
     }
 
-    #[test]
-    fn parse_sd_message() {
+    #[tokio::test]
+    async fn parse_sd_message() {
         let input: &[u8] = &[
             0xFF, 0xFF, 0x81, 0x00, // serviceId(u16), methodId(u16)
             0x00, 0x00, 0x00, 0x40, // length(u32)
@@ -592,7 +592,7 @@ mod test {
         ];
 
         let mut parser = SomeipParser::new();
-        let (output, message) = parser.parse(input, None).unwrap();
+        let (output, message) = parser.parse(input, None).await.unwrap();
 
         assert!(output.is_empty());
 
