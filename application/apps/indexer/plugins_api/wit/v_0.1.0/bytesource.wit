@@ -1,0 +1,27 @@
+package chipmunk:plugin@0.1.0;
+
+world bytesource {
+
+  use shared-types.{init-error};
+
+  // **************************************************
+  // *************    Type Definitions    *************
+  // **************************************************
+  
+  /// Represents the errors while reading more bytes
+  variant source-error {
+    io(string),
+    unsupported,
+    other(string),
+  }
+
+  // **************************************************
+  // *** Exports (Functions provided by the plugin) ***
+  // **************************************************
+  
+  /// Initialize the bytesource with the given configurations
+  export init: func(configs: string) -> result<_, init-error>;
+
+  /// Reads more bytes returning a list of bytes with the given length if possible
+  export read: func(len: u64) -> result<list<u8>, source-error>;
+}
