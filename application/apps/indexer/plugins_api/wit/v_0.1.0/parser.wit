@@ -8,6 +8,11 @@ world parser {
   // *************    Type Definitions    *************
   // **************************************************
 
+  /// General configurations related to all parsers
+  record parser-config {
+    place-holder-config: string,
+  }
+
   /// Return item for parsing call
   record parse-return {
     /// Parsed item or None if skipped
@@ -53,7 +58,7 @@ world parser {
   // **************************************************
   
   /// Initialize the parser with the given configurations
-  export init: func(configs: string) -> result<_, init-error>;
+  export init: func(general-configs: parser-config, plugin-configs: string) -> result<_, init-error>;
 
   /// Parse the given bytes returning a list of plugins results
   export parse: func(data: list<u8>, timestamp: option<u64>) -> list<result<parse-return, parse-error>>;

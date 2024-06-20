@@ -12,7 +12,7 @@ struct PluginParser;
 
 impl Guest for PluginParser {
     /// Initialize the parser with the given configurations
-    fn init(configs: _rt::String) -> Result<(), InitError> {
+    fn init(general_configs: ParserConfig, plugin_configs: _rt::String) -> Result<(), InitError> {
         todo!()
     }
 
