@@ -15,12 +15,17 @@ world bytesource {
     other(string),
   }
 
+  /// General configurations related to all bytesources
+  record source-config {
+    place-holder-config: string,
+  }
+
   // **************************************************
   // *** Exports (Functions provided by the plugin) ***
   // **************************************************
   
   /// Initialize the bytesource with the given configurations
-  export init: func(configs: string) -> result<_, init-error>;
+  export init: func(general-configs: source-config, plugin-configs: string) -> result<_, init-error>;
 
   /// Reads more bytes returning a list of bytes with the given length if possible
   export read: func(len: u64) -> result<list<u8>, source-error>;

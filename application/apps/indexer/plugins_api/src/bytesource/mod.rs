@@ -12,7 +12,7 @@ struct PluginByteSource;
 
 impl Guest for PluginByteSource {
     /// Initialize the bytesource with the given configurations
-    fn init(configs: _rt::String) -> Result<(), InitError> {
+    fn init(general_configs: SourceConfig, plugin_configs: _rt::String) -> Result<(), InitError> {
         todo!()
     }
 
