@@ -2152,6 +2152,9 @@ dependencies = [
 name = "plugins"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "thiserror",
+ "tokio",
  "wasmtime",
  "wasmtime-wasi",
 ]
