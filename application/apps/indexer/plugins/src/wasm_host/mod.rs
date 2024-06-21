@@ -1,22 +1,19 @@
-// TODO: Temporally place holder
-#![allow(dead_code, unused_imports, unused)]
+use std::sync::Arc;
 
-use thiserror::Error;
 use tokio::sync::OnceCell;
 use wasmtime::{Config, Engine};
 
-#[derive(Debug, Error)]
-pub enum WasmInitError {
-    #[error("Error while initializing WASM Engine")]
-    EngineError(#[from] anyhow::Error),
+pub struct WasmHost {
+    pub engine: Engine,
 }
 
-pub struct WasmHost {
-    engine: Engine,
-}
+#[derive(Debug, thiserror::Error, Clone)]
+#[error(transparent)]
+// We are using Arc here because the anyhow::Error doesn't implement `Clone` trait
+pub struct WasmHostInitError(#[from] Arc<anyhow::Error>);
 
 impl WasmHost {
-    fn init() -> Result<Self, WasmInitError> {
+    fn init() -> Result<Self, WasmHostInitError> {
         let mut config = Config::new();
         config.wasm_component_model(true);
         config.async_support(true);
@@ -25,7 +22,7 @@ impl WasmHost {
         // config.relaxed_simd_deterministic(true);
         // config.cranelift_opt_level(wasmtime::OptLevel::Speed);
 
-        let engine = Engine::new(&config)?;
+        let engine = Engine::new(&config).map_err(|err| Arc::new(err))?;
 
         let host = Self { engine };
 
@@ -33,8 +30,8 @@ impl WasmHost {
     }
 }
 
-pub async fn get_wasm_host() -> &'static Result<WasmHost, WasmInitError> {
-    static WASM_HOST: OnceCell<Result<WasmHost, WasmInitError>> = OnceCell::const_new();
+pub async fn get_wasm_host() -> &'static Result<WasmHost, WasmHostInitError> {
+    static WASM_HOST: OnceCell<Result<WasmHost, WasmHostInitError>> = OnceCell::const_new();
 
     WASM_HOST.get_or_init(|| async { WasmHost::init() }).await
 }
