@@ -5,7 +5,7 @@ interface shared-types {
   variant init-error {
     config(string),
     io(string),
-    unsupported,
+    unsupported(string),
     other(string),
   }
 
