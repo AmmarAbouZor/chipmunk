@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use wasmtime_wasi::{DirPerms, FilePerms, WasiCtxBuilder};
 
-use crate::plugins_shared::{get_wasi_ctx_builder, PluginHostInitError};
+use crate::{plugins_shared::get_wasi_ctx_builder, PluginHostInitError};
 
 /// Path of input file directory that will presented to the plugins.
 const INPUT_DIR_PATH: &str = "./input";

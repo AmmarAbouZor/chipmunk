@@ -3,24 +3,10 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 use wasmtime_wasi::{DirPerms, FilePerms, WasiCtxBuilder};
 
-use crate::{parser::PluginGuestInitError, wasm_host::WasmHostInitError};
+use crate::{wasm_host::WasmHostInitError, PluginHostInitError};
 
 /// Path of plugin configurations directory that will presented to the plugins.
 const PLUGINS_CONFIG_DIR_PATH: &str = "./config";
-
-#[derive(Debug, Error)]
-pub enum PluginHostInitError {
-    #[error("Error while initializing WASM Engine. {0}")]
-    EngineError(#[from] WasmHostInitError),
-    #[error("Validating the plugin while loading failed. {0}")]
-    PluginInvalid(String),
-    #[error("Error reported from the plugin")]
-    GuestError(PluginGuestInitError),
-    #[error("IO Error while initializing WASM Plugin. {0}")]
-    IO(String),
-    #[error(transparent)]
-    WasmRunTimeError(#[from] anyhow::Error),
-}
 
 /// Creates [`WasiCtxBuilder`] with shared configurations, giving the plugin access to their
 /// configurations file directory.

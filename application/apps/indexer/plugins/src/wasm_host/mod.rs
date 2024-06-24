@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use tokio::sync::OnceCell;
 use wasmtime::{Config, Engine};
@@ -30,8 +30,8 @@ impl WasmHost {
     }
 }
 
-pub async fn get_wasm_host() -> &'static Result<WasmHost, WasmHostInitError> {
-    static WASM_HOST: OnceCell<Result<WasmHost, WasmHostInitError>> = OnceCell::const_new();
+pub fn get_wasm_host() -> &'static Result<WasmHost, WasmHostInitError> {
+    static WASM_HOST: OnceLock<Result<WasmHost, WasmHostInitError>> = OnceLock::new();
 
-    WASM_HOST.get_or_init(|| async { WasmHost::init() }).await
+    WASM_HOST.get_or_init(|| WasmHost::init())
 }
