@@ -22,7 +22,7 @@ impl WasmHost {
         // config.relaxed_simd_deterministic(true);
         // config.cranelift_opt_level(wasmtime::OptLevel::Speed);
 
-        let engine = Engine::new(&config).map_err(|err| Arc::new(err))?;
+        let engine = Engine::new(&config).map_err(Arc::new)?;
 
         let host = Self { engine };
 
@@ -33,5 +33,5 @@ impl WasmHost {
 pub fn get_wasm_host() -> &'static Result<WasmHost, WasmHostInitError> {
     static WASM_HOST: OnceLock<Result<WasmHost, WasmHostInitError>> = OnceLock::new();
 
-    WASM_HOST.get_or_init(|| WasmHost::init())
+    WASM_HOST.get_or_init(WasmHost::init)
 }

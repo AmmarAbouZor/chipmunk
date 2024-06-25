@@ -50,7 +50,7 @@ impl PluginParser {
         let mut ctx = get_wasi_ctx_builder(&config_path)?;
         let resource_table = ResourceTable::new();
 
-        let mut store = Store::new(&engine, ParserPluginState::new(ctx.build(), resource_table));
+        let mut store = Store::new(engine, ParserPluginState::new(ctx.build(), resource_table));
 
         let (plugin_bindings, _instance) =
             Parser::instantiate_async(&mut store, &component, &linker).await?;

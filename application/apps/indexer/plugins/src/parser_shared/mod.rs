@@ -33,7 +33,7 @@ impl PluginParser {
 
         let component_types = component.component_type();
 
-        let export_info = component_types.exports(&engine).next().ok_or_else(|| {
+        let export_info = component_types.exports(engine).next().ok_or_else(|| {
             PluginHostInitError::PluginInvalid("Plugin doesn't have exports information".into())
         })?;
 

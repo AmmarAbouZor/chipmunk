@@ -30,7 +30,7 @@ impl WasiView for ParserPluginState {
 
 impl ParserImports for ParserPluginState {
     // Add parse results one by one directly at the host memory
-    fn add(&mut self, item: Result<ParseReturn, ParseError>) -> () {
+    fn add(&mut self, item: Result<ParseReturn, ParseError>) {
         self.results_queue.push(item);
     }
 }
