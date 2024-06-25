@@ -19,7 +19,7 @@ pub struct PluginByteSource {}
 impl PluginByteSource {
     pub fn create(
         input: ByteSourceInput,
-        config_path: impl AsRef<Path>,
+        config_path: Option<impl AsRef<Path>>,
     ) -> Result<Self, PluginHostInitError> {
         // This is just handling the case of input file. The rest is missing
 

@@ -3,6 +3,7 @@ mod parser_plugin_state;
 
 use std::{iter, path::Path};
 
+use sources::factory::{PluginParserGeneralSetttings, PluginParserSettings};
 use wasmtime::{
     component::{Component, Linker},
     Store,
@@ -13,8 +14,7 @@ use crate::{
     plugins_shared::{get_plugin_config_path, get_wasi_ctx_builder},
     v0_1_0::parser::bindings::ParseError,
     wasm_host::get_wasm_host,
-    ParserConfig, PluginGuestInitError, PluginHostInitError, PluginParseMessage, PluginType,
-    WasmPlugin,
+    PluginGuestInitError, PluginHostInitError, PluginParseMessage, PluginType, WasmPlugin,
 };
 
 use self::{
@@ -36,8 +36,8 @@ impl WasmPlugin for PluginParser {
 impl PluginParser {
     pub async fn create(
         component: Component,
-        general_config: &ParserConfig,
-        config_path: impl AsRef<Path>,
+        general_config: &PluginParserGeneralSetttings,
+        config_path: Option<impl AsRef<Path>>,
     ) -> Result<Self, PluginHostInitError> {
         let engine = match get_wasm_host() {
             Ok(host) => &host.engine,
@@ -49,7 +49,7 @@ impl PluginParser {
 
         Parser::add_to_linker(&mut linker, |state| state);
 
-        let mut ctx = get_wasi_ctx_builder(&config_path)?;
+        let mut ctx = get_wasi_ctx_builder(config_path.as_ref())?;
         let resource_table = ResourceTable::new();
 
         let mut store = Store::new(engine, ParserPluginState::new(ctx.build(), resource_table));
@@ -57,16 +57,29 @@ impl PluginParser {
         let (plugin_bindings, _instance) =
             Parser::instantiate_async(&mut store, &component, &linker).await?;
 
-        let plugin_config_path = get_plugin_config_path(config_path)?;
-        let plugin_config_path = plugin_config_path.to_str().ok_or_else(|| {
-            PluginHostInitError::IO(format!(
-                "Plugin Config Path isn't valid utf-8 string: {}",
-                plugin_config_path.display()
-            ))
-        })?;
+        let plugin_config_path = if let Some(config_path) = config_path.as_ref() {
+            let plugin_config_path = get_plugin_config_path(config_path)?;
+            let plugin_config_path =
+                plugin_config_path
+                    .into_os_string()
+                    .into_string()
+                    .map_err(|os_path| {
+                        PluginHostInitError::IO(format!(
+                            "Plugin Config Path isn't valid utf-8 string: {}",
+                            os_path.to_string_lossy()
+                        ))
+                    })?;
+            Some(plugin_config_path)
+        } else {
+            None
+        };
 
         plugin_bindings
-            .call_init(&mut store, general_config.into(), plugin_config_path)
+            .call_init(
+                &mut store,
+                general_config.into(),
+                plugin_config_path.as_deref(),
+            )
             .await?
             .map_err(|guest_err| {
                 PluginHostInitError::GuestError(PluginGuestInitError::from(guest_err))

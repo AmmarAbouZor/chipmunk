@@ -12,6 +12,7 @@ use parsers::{
     text::StringTokenizer,
     LogMessage, MessageStreamItem, ParseYield, Parser,
 };
+use plugins::PluginParser;
 use sources::{
     factory::ParserType,
     producer::{MessageProducer, SdeReceiver},
@@ -78,6 +79,19 @@ async fn run_source_intern<S: ByteSource>(
     rx_tail: Option<Receiver<Result<(), tail::Error>>>,
 ) -> OperationResult<()> {
     match parser {
+        ParserType::Plugin(settings) => {
+            println!("------------------------------------------------------");
+            println!("-------------    WASM parser used    -----------------");
+            println!("------------------------------------------------------");
+            let parser = PluginParser::create(
+                &settings.plugin_path,
+                &settings.general_settings,
+                settings.custom_config_path.as_ref(),
+            )
+            .await?;
+            let producer = MessageProducer::new(parser, source, rx_sde);
+            run_producer(operation_api, state, source_id, producer, rx_tail).await
+        }
         ParserType::SomeIp(settings) => {
             let someip_parser = match &settings.fibex_file_paths {
                 Some(paths) => {
