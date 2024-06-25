@@ -1,4 +1,6 @@
-use crate::{ParserConfig as HostParseConfig, PluginGuestInitError, PluginHostInitError};
+use crate::{
+    ParserConfig as HostParseConfig, PluginGuestInitError, PluginHostInitError, PluginParseMessage,
+};
 
 use self::chipmunk::plugin::shared_types;
 wasmtime::component::bindgen!({
@@ -28,6 +30,43 @@ impl From<InitError> for PluginGuestInitError {
             InitError::Io(msg) => GuestErr::IO(msg),
             InitError::Unsupported(msg) => GuestErr::Unsupported(msg),
             InitError::Other(msg) => GuestErr::Other(msg),
+        }
+    }
+}
+
+use parsers as p;
+
+impl From<ParseYield> for p::ParseYield<PluginParseMessage> {
+    fn from(yld: ParseYield) -> Self {
+        match yld {
+            ParseYield::Message(msg) => p::ParseYield::Message(msg.into()),
+            ParseYield::Attachment(att) => p::ParseYield::Attachment(att.into()),
+            ParseYield::MessageAndAttachment((msg, att)) => {
+                p::ParseYield::MessageAndAttachment((msg.into(), att.into()))
+            }
+        }
+    }
+}
+
+impl From<Attachment> for p::Attachment {
+    fn from(att: Attachment) -> Self {
+        p::Attachment {
+            data: att.data,
+            name: att.name,
+            size: att.size as usize,
+            messages: att.messages.into_iter().map(|n| n as usize).collect(),
+            created_date: att.created_date,
+            modified_date: att.modified_date,
+        }
+    }
+}
+
+impl From<ParseError> for p::Error {
+    fn from(err: ParseError) -> Self {
+        match err {
+            ParseError::Parse(msg) => p::Error::Parse(msg),
+            ParseError::Incomplete => p::Error::Incomplete,
+            ParseError::Eof => p::Error::Eof,
         }
     }
 }
