@@ -1,7 +1,7 @@
 mod bindings;
 mod parser_plugin_state;
 
-use std::path::Path;
+use std::{iter, path::Path};
 
 use wasmtime::{
     component::{Component, Linker},
@@ -11,12 +11,14 @@ use wasmtime_wasi::{DirPerms, FilePerms, ResourceTable, WasiCtxBuilder};
 
 use crate::{
     plugins_shared::{get_plugin_config_path, get_wasi_ctx_builder},
+    v0_1_0::parser::bindings::ParseError,
     wasm_host::get_wasm_host,
-    ParserConfig, PluginGuestInitError, PluginHostInitError, PluginType, WasmPlugin,
+    ParserConfig, PluginGuestInitError, PluginHostInitError, PluginParseMessage, PluginType,
+    WasmPlugin,
 };
 
 use self::{
-    bindings::{InitError, Parser},
+    bindings::{InitError, ParseReturn, Parser},
     parser_plugin_state::ParserPluginState,
 };
 
@@ -74,5 +76,83 @@ impl PluginParser {
             store,
             plugin_bindings,
         })
+    }
+
+    #[inline]
+    /// Call parse function that returns the result as a collection.
+    fn parse_with_list(
+        &mut self,
+        input: &[u8],
+        timestamp: Option<u64>,
+    ) -> impl IntoIterator<Item = Result<(usize, Option<p::ParseYield<PluginParseMessage>>), p::Error>>
+           + Send {
+        let call_res = futures::executor::block_on(self.plugin_bindings.call_parse(
+            &mut self.store,
+            input,
+            timestamp,
+        ));
+
+        let parse_results = match call_res {
+            Ok(results) => results,
+            Err(call_err) => {
+                //TODO AAZ: Check if we need to add a new error type to the parser trait
+                vec![Err(ParseError::Parse(format!(
+                    "Call parse on the plugin failed. Error: {call_err}"
+                )))]
+            }
+        };
+
+        parse_results.into_iter().map(guest_to_host_parse_results)
+    }
+
+    #[inline]
+    /// Call parse function that adds the results directly at the host using the add method.
+    fn parse_with_add(
+        &mut self,
+        input: &[u8],
+        timestamp: Option<u64>,
+    ) -> impl IntoIterator<Item = Result<(usize, Option<p::ParseYield<PluginParseMessage>>), p::Error>>
+           + Send {
+        debug_assert!(
+            self.store.data_mut().results_queue.is_empty(),
+            "Host results most be empty at the start of parse call"
+        );
+
+        let call_res = futures::executor::block_on(self.plugin_bindings.call_parse_with_add(
+            &mut self.store,
+            input,
+            timestamp,
+        ));
+
+        let parse_results = if let Err(call_err) = call_res {
+            //TODO AAZ: Check if we need to add a new error type to the parser trait
+            vec![Err(ParseError::Parse(format!(
+                "Call parse on the plugin failed. Error: {call_err}"
+            )))]
+        } else {
+            std::mem::take(&mut self.store.data_mut().results_queue)
+        };
+
+        parse_results.into_iter().map(guest_to_host_parse_results)
+    }
+}
+
+fn guest_to_host_parse_results(
+    guest_res: Result<ParseReturn, ParseError>,
+) -> Result<(usize, Option<p::ParseYield<PluginParseMessage>>), p::Error> {
+    todo!()
+}
+
+use parsers as p;
+impl p::Parser<PluginParseMessage> for PluginParser {
+    fn parse(
+        &mut self,
+        input: &[u8],
+        timestamp: Option<u64>,
+    ) -> impl IntoIterator<Item = Result<(usize, Option<p::ParseYield<PluginParseMessage>>), p::Error>>
+           + Send {
+        // TODO AAZ: We keep both functions for now until we can benchmark them properly.
+        self.parse_with_add(input, timestamp)
+        // self.parse_with_list(input, timestamp)
     }
 }

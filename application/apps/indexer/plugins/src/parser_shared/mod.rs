@@ -4,7 +4,7 @@ use wasmtime::component::Component;
 
 use crate::{
     semantic_version::SemanticVersion, v0_1_0, wasm_host::get_wasm_host, ParserConfig,
-    PluginHostInitError,
+    PluginHostInitError, PluginParseMessage,
 };
 
 pub mod parse_config;
@@ -67,6 +67,20 @@ impl PluginParser {
             invalid => Err(PluginHostInitError::PluginInvalid(
                 "Plugin version not supported".into(),
             )),
+        }
+    }
+}
+
+use parsers as p;
+impl p::Parser<PluginParseMessage> for PluginParser {
+    fn parse(
+        &mut self,
+        input: &[u8],
+        timestamp: Option<u64>,
+    ) -> impl IntoIterator<Item = Result<(usize, Option<p::ParseYield<PluginParseMessage>>), p::Error>>
+           + Send {
+        match self {
+            PluginParser::Ver010(parser) => parser.parse(input, timestamp),
         }
     }
 }
