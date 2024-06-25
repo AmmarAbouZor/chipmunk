@@ -64,6 +64,7 @@ impl From<Attachment> for p::Attachment {
 impl From<ParseError> for p::Error {
     fn from(err: ParseError) -> Self {
         match err {
+            ParseError::Unrecoverable(msg) => p::Error::Unrecoverable(msg),
             ParseError::Parse(msg) => p::Error::Parse(msg),
             ParseError::Incomplete => p::Error::Incomplete,
             ParseError::Eof => p::Error::Eof,

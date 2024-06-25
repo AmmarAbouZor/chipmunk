@@ -95,8 +95,7 @@ impl PluginParser {
         let parse_results = match call_res {
             Ok(results) => results,
             Err(call_err) => {
-                //TODO AAZ: Check if we need to add a new error type to the parser trait
-                vec![Err(ParseError::Parse(format!(
+                vec![Err(ParseError::Unrecoverable(format!(
                     "Call parse on the plugin failed. Error: {call_err}"
                 )))]
             }
@@ -125,8 +124,7 @@ impl PluginParser {
         ));
 
         let parse_results = if let Err(call_err) = call_res {
-            //TODO AAZ: Check if we need to add a new error type to the parser trait
-            vec![Err(ParseError::Parse(format!(
+            vec![Err(ParseError::Unrecoverable(format!(
                 "Call parse on the plugin failed. Error: {call_err}"
             )))]
         } else {

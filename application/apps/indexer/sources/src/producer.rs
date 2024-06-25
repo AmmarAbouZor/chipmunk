@@ -161,6 +161,19 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
                         let total_used_bytes = consumed + skipped_bytes;
                         results.push((total_used_bytes, MessageStreamItem::Skipped));
                     }
+
+                    Err(ParserError::Unrecoverable(err)) => {
+                        //TODO AAZ: Remove this assert after adding unit tests to ensure that the
+                        //parsing will end after encountering the first error.
+                        assert_eq!(idx, res_len - 1);
+
+                        //TODO AAZ: Check if we need to change the pop up the error and change the
+                        //signature of the functions up to front-end.
+                        error!("Parsing failed: Error {err}");
+                        eprintln!("Parsing failed: Error: {err}");
+                        self.done = true;
+                        return Some(vec![(0, MessageStreamItem::Done)]);
+                    }
                     Err(ParserError::Incomplete) => {
                         //TODO AAZ: Remove this assert after adding unit tests to ensure that the
                         //parsing will end after encountering the first error.

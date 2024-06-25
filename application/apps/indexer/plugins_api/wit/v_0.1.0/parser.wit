@@ -41,6 +41,7 @@ world parser {
   }
 
   variant parse-error {
+    unrecoverable(string),
     parse(string),
     incomplete,
     eof,
