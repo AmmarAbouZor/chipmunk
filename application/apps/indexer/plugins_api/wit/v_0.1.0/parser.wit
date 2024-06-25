@@ -59,7 +59,7 @@ world parser {
   // **************************************************
   
   /// Initialize the parser with the given configurations
-  export init: func(general-configs: parser-config, plugin-configs: string) -> result<_, init-error>;
+  export init: func(general-configs: parser-config, plugin-configs: option<string>) -> result<_, init-error>;
 
   /// Parse the given bytes returning a list of plugins results
   export parse: func(data: list<u8>, timestamp: option<u64>) -> list<result<parse-return, parse-error>>;

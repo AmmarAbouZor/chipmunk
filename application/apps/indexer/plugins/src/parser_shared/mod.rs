@@ -1,13 +1,13 @@
 use std::path::Path;
 
+use sources::factory::{PluginParserGeneralSetttings, PluginParserSettings};
 use wasmtime::component::Component;
 
 use crate::{
-    semantic_version::SemanticVersion, v0_1_0, wasm_host::get_wasm_host, ParserConfig,
-    PluginHostInitError, PluginParseMessage,
+    semantic_version::SemanticVersion, v0_1_0, wasm_host::get_wasm_host, PluginHostInitError,
+    PluginParseMessage,
 };
 
-pub mod parse_config;
 pub mod plugin_init_error;
 pub mod plugin_parse_message;
 
@@ -20,13 +20,17 @@ pub enum PluginParser {
 impl PluginParser {
     pub async fn create(
         plugin_path: impl AsRef<Path>,
-        general_config: &ParserConfig,
-        config_path: impl AsRef<Path>,
+        general_config: &PluginParserGeneralSetttings,
+        config_path: Option<impl AsRef<Path>>,
     ) -> Result<Self, PluginHostInitError> {
         let engine = match get_wasm_host() {
             Ok(host) => &host.engine,
             Err(err) => return Err(err.to_owned().into()),
         };
+
+        if !plugin_path.as_ref().exists() {
+            return Err(PluginHostInitError::IO("Plugin file doesn't exist".into()));
+        }
 
         let component = Component::from_file(engine, plugin_path)
             .map_err(|err| PluginHostInitError::PluginInvalid(err.to_string()))?;

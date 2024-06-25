@@ -2604,6 +2604,7 @@ dependencies = [
  "merging",
  "mime_guess",
  "parsers",
+ "plugins",
  "processor",
  "rustc-hash",
  "serde",

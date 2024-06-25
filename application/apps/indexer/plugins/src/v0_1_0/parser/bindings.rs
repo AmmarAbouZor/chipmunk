@@ -1,21 +1,22 @@
-use crate::{
-    ParserConfig as HostParseConfig, PluginGuestInitError, PluginHostInitError, PluginParseMessage,
-};
+use crate::{PluginGuestInitError, PluginHostInitError, PluginParseMessage};
+use sources::factory::PluginParserGeneralSetttings;
 
 use self::chipmunk::plugin::shared_types;
+//TODO AAZ: Check if `duplicate_if_necessary` should be set to true or false on both plugin and
+// host sides
 wasmtime::component::bindgen!({
     path: "../plugins_api/wit/v_0.1.0/",
     world: "parser",
     ownership: Borrowing {
-        duplicate_if_necessary: false
+        duplicate_if_necessary: true
     },
     async: {
         only_imports: [],
     },
 });
 
-impl<'a> From<&'a HostParseConfig> for ParserConfig<'a> {
-    fn from(value: &'a HostParseConfig) -> Self {
+impl<'a> From<&'a PluginParserGeneralSetttings> for ParserConfig<'a> {
+    fn from(value: &'a PluginParserGeneralSetttings) -> Self {
         Self {
             place_holder_config: &value.placeholder,
         }

@@ -8,7 +8,6 @@ mod v0_1_0;
 mod wasm_host;
 
 pub use parser_shared::{
-    parse_config::ParserConfig,
     plugin_init_error::{PluginGuestInitError, PluginHostInitError},
     plugin_parse_message::PluginParseMessage,
     PluginParser,

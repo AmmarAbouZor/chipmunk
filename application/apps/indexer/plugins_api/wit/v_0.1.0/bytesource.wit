@@ -25,7 +25,7 @@ world bytesource {
   // **************************************************
   
   /// Initialize the bytesource with the given configurations
-  export init: func(general-configs: source-config, plugin-configs: string) -> result<_, init-error>;
+  export init: func(general-configs: source-config, plugin-configs: option<string>) -> result<_, init-error>;
 
   /// Reads more bytes returning a list of bytes with the given length if possible
   export read: func(len: u64) -> result<list<u8>, source-error>;
