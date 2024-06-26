@@ -29,7 +29,11 @@ impl PluginParser {
         };
 
         if !plugin_path.as_ref().exists() {
-            return Err(PluginHostInitError::IO("Plugin file doesn't exist".into()));
+            return Err(PluginHostInitError::IO("Plugin path doesn't exist".into()));
+        }
+
+        if !plugin_path.as_ref().is_file() {
+            return Err(PluginHostInitError::IO("Plugin path is not a file".into()));
         }
 
         let component = Component::from_file(engine, plugin_path)

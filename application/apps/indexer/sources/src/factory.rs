@@ -82,15 +82,20 @@ pub struct PluginParserGeneralSetttings {
 }
 
 impl PluginParserSettings {
-    /// Default implementation needed during prototyping only
-    pub fn default_prototyping() -> Self {
+    /// Implementation needed during prototyping only
+    pub fn prototyping(plugin_path: PathBuf) -> Self {
         Self {
-            plugin_path: Default::default(),
+            plugin_path,
             general_settings: PluginParserGeneralSetttings {
                 placeholder: Default::default(),
             },
             custom_config_path: None,
         }
+    }
+
+    /// Default implementation needed during prototyping only
+    pub fn default_prototyping() -> Self {
+        Self::prototyping(PathBuf::default())
     }
 }
 
