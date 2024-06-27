@@ -1,13 +1,6 @@
 package chipmunk:plugin@0.1.0;
 
-world bytesource {
-
-  use shared-types.{init-error};
-
-  // **************************************************
-  // *************    Type Definitions    *************
-  // **************************************************
-  
+interface bytesource-types {
   /// Represents the errors while reading more bytes
   variant source-error {
     io(string),
@@ -19,14 +12,19 @@ world bytesource {
   record source-config {
     place-holder-config: string,
   }
+}
 
-  // **************************************************
-  // *** Exports (Functions provided by the plugin) ***
-  // **************************************************
-  
+interface byte-source {
+  use shared-types.{init-error};
+  use bytesource-types.{source-config, source-error};
+
   /// Initialize the bytesource with the given configurations
-  export init: func(general-configs: source-config, plugin-configs: option<string>) -> result<_, init-error>;
+  init: func(general-configs: source-config, plugin-configs: option<string>) -> result<_, init-error>;
 
   /// Reads more bytes returning a list of bytes with the given length if possible
-  export read: func(len: u64) -> result<list<u8>, source-error>;
+  read: func(len: u64) -> result<list<u8>, source-error>;
+}
+
+world bytesource-plugin {
+  export byte-source;
 }

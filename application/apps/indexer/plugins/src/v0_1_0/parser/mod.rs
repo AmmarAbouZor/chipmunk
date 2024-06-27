@@ -18,13 +18,13 @@ use crate::{
 };
 
 use self::{
-    bindings::{InitError, ParseReturn, Parser},
+    bindings::{InitError, ParsePlugin, ParseReturn},
     parser_plugin_state::ParserPluginState,
 };
 
 pub struct PluginParser {
     store: Store<ParserPluginState>,
-    plugin_bindings: Parser,
+    plugin_bindings: ParsePlugin,
 }
 
 impl WasmPlugin for PluginParser {
@@ -47,7 +47,7 @@ impl PluginParser {
         let mut linker: Linker<ParserPluginState> = Linker::new(engine);
         wasmtime_wasi::add_to_linker_async(&mut linker)?;
 
-        Parser::add_to_linker(&mut linker, |state| state);
+        ParsePlugin::add_to_linker(&mut linker, |state| state);
 
         let mut ctx = get_wasi_ctx_builder(config_path.as_ref())?;
         let resource_table = ResourceTable::new();
@@ -55,7 +55,7 @@ impl PluginParser {
         let mut store = Store::new(engine, ParserPluginState::new(ctx.build(), resource_table));
 
         let (plugin_bindings, _instance) =
-            Parser::instantiate_async(&mut store, &component, &linker).await?;
+            ParsePlugin::instantiate_async(&mut store, &component, &linker).await?;
 
         let plugin_config_path = if let Some(config_path) = config_path.as_ref() {
             let plugin_config_path = get_plugin_config_path(config_path)?;
@@ -75,6 +75,7 @@ impl PluginParser {
         };
 
         plugin_bindings
+            .chipmunk_plugin_parser()
             .call_init(
                 &mut store,
                 general_config.into(),
@@ -99,11 +100,12 @@ impl PluginParser {
         timestamp: Option<u64>,
     ) -> impl IntoIterator<Item = Result<(usize, Option<p::ParseYield<PluginParseMessage>>), p::Error>>
            + Send {
-        let call_res = futures::executor::block_on(self.plugin_bindings.call_parse(
-            &mut self.store,
-            input,
-            timestamp,
-        ));
+        let call_res =
+            futures::executor::block_on(self.plugin_bindings.chipmunk_plugin_parser().call_parse(
+                &mut self.store,
+                input,
+                timestamp,
+            ));
 
         let parse_results = match call_res {
             Ok(results) => results,
@@ -130,11 +132,11 @@ impl PluginParser {
             "Host results most be empty at the start of parse call"
         );
 
-        let call_res = futures::executor::block_on(self.plugin_bindings.call_parse_with_add(
-            &mut self.store,
-            input,
-            timestamp,
-        ));
+        let call_res = futures::executor::block_on(
+            self.plugin_bindings
+                .chipmunk_plugin_parser()
+                .call_parse_with_add(&mut self.store, input, timestamp),
+        );
 
         let parse_results = if let Err(call_err) = call_res {
             vec![Err(ParseError::Unrecoverable(format!(
