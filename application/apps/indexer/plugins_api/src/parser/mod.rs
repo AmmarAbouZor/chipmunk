@@ -3,16 +3,24 @@
 
 use wit_bindgen::generate;
 
+use self::{
+    chipmunk::plugin::{parse_types::*, shared_types::*},
+    exports::chipmunk::plugin::parser::Guest,
+};
+
 generate!({
     path: "wit/v_0.1.0",
-    world: "parser",
+    world: "parse-plugin",
 });
 
 struct PluginParser;
 
 impl Guest for PluginParser {
     /// Initialize the parser with the given configurations
-    fn init(general_configs: ParserConfig, plugin_configs: _rt::String) -> Result<(), InitError> {
+    fn init(
+        general_configs: ParserConfig,
+        plugin_configs: Option<String>,
+    ) -> Result<(), InitError> {
         todo!()
     }
 

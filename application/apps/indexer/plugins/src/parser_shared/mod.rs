@@ -11,7 +11,7 @@ use crate::{
 pub mod plugin_init_error;
 pub mod plugin_parse_message;
 
-const PARSER_PACKAGE_NAME: &str = "chipmunk:plugin/parser";
+const PARSER_INTERFACE_NAME: &str = "chipmunk:plugin/parser";
 
 pub enum PluginParser {
     Ver010(v0_1_0::parser::PluginParser),
@@ -45,13 +45,13 @@ impl PluginParser {
             PluginHostInitError::PluginInvalid("Plugin doesn't have exports information".into())
         })?;
 
-        let (package, version) = export_info.0.split_once('@').ok_or_else(|| {
+        let (interface_name, version) = export_info.0.split_once('@').ok_or_else(|| {
             PluginHostInitError::PluginInvalid(
                 "Plugin package schema doesn't match `wit` file definitions".into(),
             )
         })?;
 
-        if package != PARSER_PACKAGE_NAME {
+        if interface_name != PARSER_INTERFACE_NAME {
             return Err(PluginHostInitError::PluginInvalid(
                 "Plugin package name doesn't match `wit` file".into(),
             ));

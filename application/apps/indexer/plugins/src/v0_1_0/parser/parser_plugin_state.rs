@@ -1,6 +1,9 @@
 use wasmtime_wasi::{ResourceTable, WasiCtx, WasiView};
 
-use super::bindings::{chipmunk::plugin::shared_types, ParseError, ParseReturn, ParserImports};
+use super::bindings::{
+    chipmunk::plugin::{parse_types, shared_types},
+    ParseError, ParsePluginImports, ParseReturn,
+};
 
 pub struct ParserPluginState {
     pub ctx: WasiCtx,
@@ -28,11 +31,13 @@ impl WasiView for ParserPluginState {
     }
 }
 
-impl ParserImports for ParserPluginState {
+impl ParsePluginImports for ParserPluginState {
     // Add parse results one by one directly at the host memory
     fn add(&mut self, item: Result<ParseReturn, ParseError>) {
         self.results_queue.push(item);
     }
 }
+
+impl parse_types::Host for ParserPluginState {}
 
 impl shared_types::Host for ParserPluginState {}
