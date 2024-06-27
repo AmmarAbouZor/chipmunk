@@ -153,7 +153,13 @@ impl PluginParser {
 fn guest_to_host_parse_results(
     guest_res: Result<ParseReturn, ParseError>,
 ) -> Result<(usize, Option<p::ParseYield<PluginParseMessage>>), p::Error> {
-    todo!()
+    match guest_res {
+        Ok(parse_res) => Ok((
+            parse_res.consumed as usize,
+            parse_res.value.map(|v| v.into()),
+        )),
+        Err(parse_err) => Err(parse_err.into()),
+    }
 }
 
 use parsers as p;
