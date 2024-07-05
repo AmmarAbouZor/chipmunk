@@ -106,6 +106,30 @@ async fn run_source_intern<S: ByteSource>(
             let producer = MessageProducer::new(StringTokenizer {}, source, rx_sde);
             run_producer(operation_api, state, source_id, producer, rx_tail).await
         }
+        //TODO AAZ: Remove the whole block here a
+        ParserType::Dlt(_) if std::env::var("FORCE_PLUGIN").is_ok() => {
+            println!("------------------------------------------------------");
+            println!("-------------   WASM parser forced   -----------------");
+            println!("------------------------------------------------------");
+
+            const PLUGIN_PATH_ENV: &str = "WASM_PLUGIN_PATH";
+            //TODO AAZ: Find a better way to deliver plugin path than environment variables
+            let plugin_path = match std::env::var(PLUGIN_PATH_ENV) {
+                Ok(path) => path,
+                Err(err) => panic!("Retrieving plugin path environment variable failed. Err {err}"),
+            };
+            let proto_plugin_path = PathBuf::from(plugin_path);
+            let settings = sources::factory::PluginParserSettings::prototyping(proto_plugin_path);
+
+            let parser = PluginParser::create(
+                &settings.plugin_path,
+                &settings.general_settings,
+                settings.custom_config_path.as_ref(),
+            )
+            .await?;
+            let producer = MessageProducer::new(parser, source, rx_sde);
+            run_producer(operation_api, state, source_id, producer, rx_tail).await
+        }
         ParserType::Dlt(settings) => {
             let fmt_options = Some(FormatOptions::from(settings.tz.as_ref()));
             let dlt_parser = DltParser::new(
