@@ -171,7 +171,7 @@ impl p::Parser<PluginParseMessage> for PluginParser {
     ) -> impl IntoIterator<Item = Result<(usize, Option<p::ParseYield<PluginParseMessage>>), p::Error>>
            + Send {
         // TODO AAZ: We keep both functions for now until we can benchmark them properly.
-        // self.parse_with_add(input, timestamp)
-        self.parse_with_list(input, timestamp)
+        self.parse_with_add(input, timestamp)
+        // self.parse_with_list(input, timestamp)
     }
 }
