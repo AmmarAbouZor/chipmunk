@@ -56,175 +56,126 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
     /// MessageStreamItem
     pub fn as_stream(&mut self) -> impl Stream<Item = (usize, MessageStreamItem<T>)> + '_ {
         stream! {
-            while let Some(items) = self.read_next_segment().await {
-                for item in items {
-                    yield item;
-                }
-            }
-        }
-    }
 
-    async fn read_next_segment(&mut self) -> Option<Vec<(usize, MessageStreamItem<T>)>> {
-        if self.done {
-            debug!("done...no next segment");
-            return None;
-        }
-        self.index += 1;
-        let (_newly_loaded, mut available, mut skipped_bytes) = 'outer: loop {
-            if let Some(mut rx_sde) = self.rx_sde.take() {
-                'inner: loop {
-                    // SDE mode: listening next chunk and possible incoming message for source
-                    match select! {
-                        msg = rx_sde.recv() => Next::Sde(msg),
-                        read = self.do_reload() => Next::Read(read.unwrap_or((0, 0, 0))),
-                    } {
-                        Next::Read(next) => {
-                            self.rx_sde = Some(rx_sde);
-                            break 'outer next;
-                        }
-                        Next::Sde(msg) => {
-                            if let Some((msg, tx_response)) = msg {
-                                if tx_response
-                                    .send(
-                                        self.byte_source
-                                            .income(msg)
-                                            .await
-                                            .map_err(|e| e.to_string()),
-                                    )
-                                    .is_err()
-                                {
-                                    warn!("Fail to send back message from source");
+            'main: loop {
+                if self.done {
+                    debug!("done...no next segment");
+                    break 'main;
+                }
+                self.index += 1;
+                let (_newly_loaded, mut available, mut skipped_bytes) = 'outer: loop {
+                    if let Some(mut rx_sde) = self.rx_sde.take() {
+                        'inner: loop {
+                            // SDE mode: listening next chunk and possible incoming message for source
+                            match select! {
+                                msg = rx_sde.recv() => Next::Sde(msg),
+                                read = self.do_reload() => Next::Read(read.unwrap_or((0, 0, 0))),
+                            } {
+                                Next::Read(next) => {
+                                    self.rx_sde = Some(rx_sde);
+                                    break 'outer next;
                                 }
-                            } else {
-                                // Means - no more senders; but it isn't an error as soon as implementation of
-                                // source could just do not use a data exchanging
-                                self.rx_sde = None;
-                                // Exiting from inner loop to avoid select! and go to NoSDE mode
-                                break 'inner;
+                                Next::Sde(msg) => {
+                                    if let Some((msg, tx_response)) = msg {
+                                        if tx_response
+                                            .send(
+                                                self.byte_source
+                                                    .income(msg)
+                                                    .await
+                                                    .map_err(|e| e.to_string()),
+                                            )
+                                            .is_err()
+                                        {
+                                            warn!("Fail to send back message from source");
+                                        }
+                                    } else {
+                                        // Means - no more senders; but it isn't an error as soon as implementation of
+                                        // source could just do not use a data exchanging
+                                        self.rx_sde = None;
+                                        // Exiting from inner loop to avoid select! and go to NoSDE mode
+                                        break 'inner;
+                                    }
+                                }
                             }
                         }
+                    } else {
+                        // NoSDE mode: listening only next chunk
+                        break 'outer self.do_reload().await.unwrap_or((0, 0, 0));
+                    };
+                };
+                // 1. buffer loaded? if not, fill buffer with frame data
+                // 2. try to parse message from buffer
+                // 3a. if message, pop it of the buffer and deliever
+                // 3b. else reload into buffer and goto 2
+                loop {
+                    let current_slice = self.byte_source.current_slice();
+                    debug!(
+                        "current slice: (len: {}) (total {})",
+                        current_slice.len(),
+                        self.total_loaded
+                    );
+                    if available == 0 {
+                        trace!("No more bytes available from source");
+                        self.done = true;
+                        yield (0, MessageStreamItem::Done);
+                        break;
                     }
-                }
-            } else {
-                // NoSDE mode: listening only next chunk
-                break 'outer self.do_reload().await.unwrap_or((0, 0, 0));
-            };
-        };
-        let mut call_parse = true;
-        // 1. buffer loaded? if not, fill buffer with frame data
-        // 2. try to parse message from buffer
-        // 3a. if message, pop it of the buffer and deliever
-        // 3b. else reload into buffer and goto 2
-        while call_parse {
-            call_parse = false;
-            let current_slice = self.byte_source.current_slice();
-            debug!(
-                "current slice: (len: {}) (total {})",
-                current_slice.len(),
-                self.total_loaded
-            );
-            if available == 0 {
-                trace!("No more bytes available from source");
-                self.done = true;
-                return Some(vec![(0, MessageStreamItem::Done)]);
-            }
-            let parse_results: Vec<_> = self
-                .parser
-                .parse(self.byte_source.current_slice(), self.last_seen_ts)
-                .into_iter()
-                .collect();
-
-            let res_len = parse_results.len();
-
-            let mut results = Vec::with_capacity(res_len);
-
-            for (idx, parse_res) in parse_results.into_iter().enumerate() {
-                match parse_res {
-                    Ok((consumed, Some(m))) => {
-                        let total_used_bytes = consumed + skipped_bytes;
-                        debug!(
-                            "Extracted a valid message, consumed {} bytes (total used {} bytes)",
-                            consumed, total_used_bytes
-                        );
-                        self.byte_source.consume(consumed);
-                        results.push((total_used_bytes, MessageStreamItem::Item(m)));
-                    }
-                    Ok((consumed, None)) => {
-                        self.byte_source.consume(consumed);
-                        trace!("None, consumed {} bytes", consumed);
-                        let total_used_bytes = consumed + skipped_bytes;
-                        results.push((total_used_bytes, MessageStreamItem::Skipped));
-                    }
-                    Err(ParserError::Incomplete) => {
-                        //TODO AAZ: Remove this assert after adding unit tests to ensure that the
-                        //parsing will end after encountering the first error.
-                        assert_eq!(idx, res_len - 1);
-                        // This Error is currently not implemented by the parsers but it should be
-                        // used when the parsers reaches the last bytes of the given buffer and
-                        // can't parse them anymore. Currently Parse Error is returned
-                        trace!("not enough bytes to parse a message");
-                        if results.is_empty() {
-                            let (reloaded, _available_bytes, skipped) = self.do_reload().await?;
-                            available += reloaded;
-                            skipped_bytes += skipped;
-                            // Call parser again
-                            call_parse = true;
-                        }
-                    }
-                    Err(ParserError::Eof) => {
-                        //TODO AAZ: Remove this assert after adding unit tests to ensure that the
-                        //parsing will end after encountering the first error.
-                        assert_eq!(idx, res_len - 1);
-                        trace!(
-                            "EOF reached...no more messages (skipped_bytes={})",
-                            skipped_bytes
-                        );
-                    }
-                    Err(ParserError::Parse(s)) => {
-                        //TODO AAZ: Remove this assert after adding unit tests to ensure that the
-                        //parsing will end after encountering the first error.
-                        assert_eq!(idx, res_len - 1);
-                        // Currently, the parse error message indicates that the parse reaches the
-                        // last bytes from the current buffer that can't be parsed.
-                        // In this case if we don't have other results we will assume that an error
-                        // has happened. Otherwise, we return the current results and after that
-                        // parser will be called again.
-
-                        if results.is_empty() {
-                            trace!(
+                    let items: Vec<_> =self .parser .parse(self.byte_source.current_slice(), self.last_seen_ts).collect();
+                    for parse_res in items  {
+                        match parse_res {
+                            Ok((consumed, Some(m))) => {
+                                let total_used_bytes = consumed + skipped_bytes;
+                                debug!(
+                                    "Extracted a valid message, consumed {} bytes (total used {} bytes)",
+                                    consumed, total_used_bytes
+                                );
+                                self.byte_source.consume(consumed);
+                                yield (total_used_bytes, MessageStreamItem::Item(m));
+                            }
+                            Ok((consumed, None)) => {
+                                self.byte_source.consume(consumed);
+                                trace!("None, consumed {} bytes", consumed);
+                                let total_used_bytes = consumed + skipped_bytes;
+                                yield (total_used_bytes, MessageStreamItem::Skipped);
+                            }
+                            Err(ParserError::Incomplete) => {
+                                trace!("not enough bytes to parse a message");
+                                let Some((reloaded, _available_bytes, skipped)) = self.do_reload().await else {break 'main};
+                                available += reloaded;
+                                skipped_bytes += skipped;
+                                continue;
+                            }
+                            Err(ParserError::Eof) => {
+                                trace!(
+                                    "EOF reached...no more messages (skipped_bytes={})",
+                                    skipped_bytes
+                                );
+                                break 'main;
+                            }
+                            Err(ParserError::Parse(s)) => {
+                                trace!(
                                 "No parse possible, try next batch of data ({}), skipped {} more bytes ({} already)",
                                 s, available, skipped_bytes
                             );
-                            // skip all currently available bytes
-                            self.byte_source.consume(available);
-                            skipped_bytes += available;
-                            available = self.byte_source.len();
-                            if let Some((reloaded, _available_bytes, skipped)) =
-                                self.do_reload().await
-                            {
-                                available += reloaded;
-                                skipped_bytes += skipped;
-                                call_parse = true;
-                            } else {
-                                let unused = skipped_bytes + available;
-                                self.done = true;
-                                return Some(vec![(unused, MessageStreamItem::Done)]);
+                                // skip all currently available bytes
+                                self.byte_source.consume(available);
+                                skipped_bytes += available;
+                                available = self.byte_source.len();
+                                if let Some((reloaded, _available_bytes, skipped)) = self.do_reload().await {
+                                    available += reloaded;
+                                    skipped_bytes += skipped;
+                                    continue;
+                                } else {
+                                    let unused = skipped_bytes + available;
+                                    self.done = true;
+                                    yield (unused, MessageStreamItem::Done);
+                                }
                             }
                         }
                     }
                 }
             }
-            if call_parse {
-                //TODO AAZ: This is needed while the implementation only
-                assert!(results.is_empty());
-            } else if results.is_empty() {
-                return None;
-            } else {
-                return Some(results);
-            }
         }
-
-        unreachable!()
     }
 
     async fn do_reload(&mut self) -> Option<(usize, usize, usize)> {
