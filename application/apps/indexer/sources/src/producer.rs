@@ -56,7 +56,6 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
     /// MessageStreamItem
     pub fn as_stream(&mut self) -> impl Stream<Item = (usize, MessageStreamItem<T>)> + '_ {
         stream! {
-
             'main: loop {
                 if self.done {
                     debug!("done...no next segment");
@@ -120,8 +119,37 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
                         yield (0, MessageStreamItem::Done);
                         break;
                     }
-                    let items: Vec<_> =self .parser .parse(self.byte_source.current_slice(), self.last_seen_ts).collect();
-                    for parse_res in items  {
+                    // Consumed can't be called from within the for loop for the iterator.
+                    let mut total_consumed = 0;
+
+                    //TODO AAZ: Solve this in better way if we need to continue with this approach
+                    // Reload can't be called from within the for loop for the iterator.
+                    // Reload is called twice in the original code:
+                    // Once on Error of type Incomplete
+                    let mut need_reload_incomplete = false;
+                    // And the other on parse Error
+                    let mut need_reload_parse_error = false;
+
+                    // This is the only way currently to get the size hint of the iterator without
+                    // invoking the error about Send implementation isn't general enough
+                    let (results_iter, results_size_hint) = {
+                        let iter = self.parser.parse(self.byte_source.current_slice(), self.last_seen_ts);
+                        let len_hint = iter.size_hint().1;
+                        (iter, len_hint)
+                    };
+
+
+                    // We can't yield the results from within the loop while we still have
+                    // reference to the iterator. This approach saves the values in a vector
+                    // temporally and yield them after that one by one.
+                    // TODO AAZ: Change the stream output to vector or an iterator
+                    let mut results_cache = if let Some(len) = results_size_hint {
+                        Vec::with_capacity(len)
+                    }else {
+                        Vec::new()
+                    };
+
+                    for parse_res in results_iter {
                         match parse_res {
                             Ok((consumed, Some(m))) => {
                                 let total_used_bytes = consumed + skipped_bytes;
@@ -129,20 +157,18 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
                                     "Extracted a valid message, consumed {} bytes (total used {} bytes)",
                                     consumed, total_used_bytes
                                 );
-                                self.byte_source.consume(consumed);
-                                yield (total_used_bytes, MessageStreamItem::Item(m));
+                                total_consumed += consumed;
+                                results_cache.push((total_used_bytes, MessageStreamItem::Item(m)));
                             }
                             Ok((consumed, None)) => {
-                                self.byte_source.consume(consumed);
+                                total_consumed += consumed;
                                 trace!("None, consumed {} bytes", consumed);
                                 let total_used_bytes = consumed + skipped_bytes;
-                                yield (total_used_bytes, MessageStreamItem::Skipped);
+                                results_cache.push((total_used_bytes, MessageStreamItem::Skipped));
                             }
                             Err(ParserError::Incomplete) => {
                                 trace!("not enough bytes to parse a message");
-                                let Some((reloaded, _available_bytes, skipped)) = self.do_reload().await else {break 'main};
-                                available += reloaded;
-                                skipped_bytes += skipped;
+                                need_reload_incomplete = true;
                                 continue;
                             }
                             Err(ParserError::Eof) => {
@@ -157,20 +183,36 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
                                 "No parse possible, try next batch of data ({}), skipped {} more bytes ({} already)",
                                 s, available, skipped_bytes
                             );
+                                total_consumed += available;
                                 // skip all currently available bytes
-                                self.byte_source.consume(available);
+                                // self.byte_source.consume(available);
                                 skipped_bytes += available;
-                                available = self.byte_source.len();
-                                if let Some((reloaded, _available_bytes, skipped)) = self.do_reload().await {
-                                    available += reloaded;
-                                    skipped_bytes += skipped;
-                                    continue;
-                                } else {
-                                    let unused = skipped_bytes + available;
-                                    self.done = true;
-                                    yield (unused, MessageStreamItem::Done);
-                                }
+                                need_reload_parse_error = true;
                             }
+                        }
+                    }
+
+                    for res in results_cache {
+                        yield res;
+                    }
+
+                    self.byte_source.consume(total_consumed);
+
+                    if need_reload_incomplete {
+                        let Some((reloaded, _available_bytes, skipped)) = self.do_reload().await else {break 'main};
+                        available += reloaded;
+                        skipped_bytes += skipped;
+                    }
+
+                    if need_reload_parse_error {
+                        available = self.byte_source.len();
+                        if let Some((reloaded, _available_bytes, skipped)) = self.do_reload().await {
+                            available += reloaded;
+                            skipped_bytes += skipped;
+                        } else {
+                            let unused = skipped_bytes + available;
+                            self.done = true;
+                            yield (unused, MessageStreamItem::Done);
                         }
                     }
                 }
