@@ -54,7 +54,7 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
     }
     /// create a stream of pairs that contain the count of all consumed bytes and the
     /// MessageStreamItem
-    pub fn as_stream(&mut self) -> impl Stream<Item = (usize, MessageStreamItem<T>)> + '_ {
+    pub fn as_stream(&mut self) -> impl Stream<Item = Vec<(usize, MessageStreamItem<T>)>> + '_ {
         stream! {
             'main: loop {
                 if self.done {
@@ -116,7 +116,7 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
                     if available == 0 {
                         trace!("No more bytes available from source");
                         self.done = true;
-                        yield (0, MessageStreamItem::Done);
+                        yield vec![(0, MessageStreamItem::Done)];
                         break;
                     }
                     // Consumed can't be called from within the for loop for the iterator.
@@ -192,9 +192,7 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
                         }
                     }
 
-                    for res in results_cache {
-                        yield res;
-                    }
+                    yield results_cache;
 
                     self.byte_source.consume(total_consumed);
 
@@ -212,7 +210,7 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
                         } else {
                             let unused = skipped_bytes + available;
                             self.done = true;
-                            yield (unused, MessageStreamItem::Done);
+                            yield vec![(unused, MessageStreamItem::Done)];
                         }
                     }
                 }
