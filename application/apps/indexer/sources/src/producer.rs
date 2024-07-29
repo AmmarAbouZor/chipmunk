@@ -34,6 +34,7 @@ where
     total_skipped: usize,
     done: bool,
     rx_sde: Option<SdeReceiver>,
+    start: std::time::Instant,
 }
 
 impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
@@ -50,16 +51,20 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
             total_skipped: 0,
             done: false,
             rx_sde,
+            start: std::time::Instant::now(),
         }
     }
     /// create a stream of pairs that contain the count of all consumed bytes and the
     /// MessageStreamItem
     pub fn as_stream(&mut self) -> impl Stream<Item = (usize, MessageStreamItem<T>)> + '_ {
         stream! {
-
             'main: loop {
                 if self.done {
                     debug!("done...no next segment");
+                    println!(
+                        "\x1b[93mmessage producer took : {:?}\x1b[0m",
+                        self.start.elapsed()
+                    );
                     break 'main;
                 }
                 self.index += 1;
