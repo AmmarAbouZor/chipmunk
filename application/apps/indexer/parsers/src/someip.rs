@@ -59,8 +59,7 @@ impl Parser<SomeipLogMessage> for SomeipParser {
         &mut self,
         input: &[u8],
         timestamp: Option<u64>,
-    ) -> impl IntoIterator<Item = Result<(usize, Option<ParseYield<SomeipLogMessage>>), Error>> + Send
-    {
+    ) -> impl Iterator<Item = Result<(usize, Option<ParseYield<SomeipLogMessage>>), Error>> {
         let time = timestamp.unwrap_or(0);
         match Message::from_slice(input) {
             Ok(Message::Sd(header, payload)) => {

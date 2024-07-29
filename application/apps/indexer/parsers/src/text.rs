@@ -31,8 +31,7 @@ where
         &mut self,
         input: &[u8],
         _timestamp: Option<u64>,
-    ) -> impl IntoIterator<Item = Result<(usize, Option<ParseYield<StringMessage>>), Error>> + Send
-    {
+    ) -> impl Iterator<Item = Result<(usize, Option<ParseYield<StringMessage>>), Error>> {
         // TODO: support non-utf8 encodings
         use memchr::memchr;
         if input.is_empty() {
