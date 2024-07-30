@@ -136,61 +136,60 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
                 self.done = true;
                 return Some(vec![(0, MessageStreamItem::Done)].into_iter());
             }
-            let parse_results: Vec<_> = self
-                .parser
-                .parse(self.byte_source.current_slice(), self.last_seen_ts)
-                .collect();
 
-            let res_len = parse_results.len();
+            // This is the only way currently to get the size hint of the iterator without
+            // invoking the error about Send implementation isn't general enough
+            let (results_iter, results_size_hint) = {
+                let iter = self
+                    .parser
+                    .parse(self.byte_source.current_slice(), self.last_seen_ts);
+                let len_hint = iter.size_hint().1;
+                (iter, len_hint)
+            };
 
-            let mut results = Vec::with_capacity(res_len);
+            let mut results = if let Some(res_len) = results_size_hint {
+                Vec::with_capacity(res_len)
+            } else {
+                Vec::new()
+            };
 
-            for (idx, parse_res) in parse_results.into_iter().enumerate() {
+            let mut total_consumed = 0;
+            let mut reload_after_incomplete = false;
+            let mut reload_after_parse_err = false;
+
+            for parse_res in results_iter.into_iter() {
                 match parse_res {
                     Ok((consumed, Some(m))) => {
+                        total_consumed += consumed;
                         let total_used_bytes = consumed + skipped_bytes;
                         debug!(
                             "Extracted a valid message, consumed {} bytes (total used {} bytes)",
                             consumed, total_used_bytes
                         );
-                        self.byte_source.consume(consumed);
                         results.push((total_used_bytes, MessageStreamItem::Item(m)));
                     }
                     Ok((consumed, None)) => {
-                        self.byte_source.consume(consumed);
+                        total_consumed += consumed;
                         trace!("None, consumed {} bytes", consumed);
                         let total_used_bytes = consumed + skipped_bytes;
                         results.push((total_used_bytes, MessageStreamItem::Skipped));
                     }
                     Err(ParserError::Incomplete) => {
-                        //TODO AAZ: Remove this assert after adding unit tests to ensure that the
-                        //parsing will end after encountering the first error.
-                        assert_eq!(idx, res_len - 1);
                         // This Error is currently not implemented by the parsers but it should be
                         // used when the parsers reaches the last bytes of the given buffer and
                         // can't parse them anymore. Currently Parse Error is returned
                         trace!("not enough bytes to parse a message");
                         if results.is_empty() {
-                            let (reloaded, _available_bytes, skipped) = self.do_reload().await?;
-                            available += reloaded;
-                            skipped_bytes += skipped;
-                            // Call parser again
-                            call_parse = true;
+                            reload_after_incomplete = true;
                         }
                     }
                     Err(ParserError::Eof) => {
-                        //TODO AAZ: Remove this assert after adding unit tests to ensure that the
-                        //parsing will end after encountering the first error.
-                        assert_eq!(idx, res_len - 1);
                         trace!(
                             "EOF reached...no more messages (skipped_bytes={})",
                             skipped_bytes
                         );
                     }
                     Err(ParserError::Parse(s)) => {
-                        //TODO AAZ: Remove this assert after adding unit tests to ensure that the
-                        //parsing will end after encountering the first error.
-                        assert_eq!(idx, res_len - 1);
                         // Currently, the parse error message indicates that the parse reaches the
                         // last bytes from the current buffer that can't be parsed.
                         // In this case if we don't have other results we will assume that an error
@@ -202,29 +201,41 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
                                 "No parse possible, try next batch of data ({}), skipped {} more bytes ({} already)",
                                 s, available, skipped_bytes
                             );
-                            // skip all currently available bytes
-                            self.byte_source.consume(available);
-                            skipped_bytes += available;
-                            available = self.byte_source.len();
-                            if let Some((reloaded, _available_bytes, skipped)) =
-                                self.do_reload().await
-                            {
-                                available += reloaded;
-                                skipped_bytes += skipped;
-                                call_parse = true;
-                            } else {
-                                let unused = skipped_bytes + available;
-                                self.done = true;
-                                println!(
-                                    "\x1b[93mmessage producer took : {:?}. But ended with parse error\x1b[0m",
-                                    self.start.elapsed()
-                                );
-                                return Some(vec![(unused, MessageStreamItem::Done)].into_iter());
-                            }
+                            reload_after_parse_err = true;
                         }
                     }
                 }
             }
+
+            self.byte_source.consume(total_consumed);
+            if reload_after_incomplete {
+                let (reloaded, _available_bytes, skipped) = self.do_reload().await?;
+                available += reloaded;
+                skipped_bytes += skipped;
+                // Call parser again
+                call_parse = true;
+            }
+
+            if reload_after_parse_err {
+                // skip all currently available bytes
+                self.byte_source.consume(available);
+                skipped_bytes += available;
+                available = self.byte_source.len();
+                if let Some((reloaded, _available_bytes, skipped)) = self.do_reload().await {
+                    available += reloaded;
+                    skipped_bytes += skipped;
+                    call_parse = true;
+                } else {
+                    let unused = skipped_bytes + available;
+                    self.done = true;
+                    println!(
+                        "\x1b[93mmessage producer took : {:?}. But ended with parse error\x1b[0m",
+                        self.start.elapsed()
+                    );
+                    return Some(vec![(unused, MessageStreamItem::Done)].into_iter());
+                }
+            }
+
             if call_parse {
                 //TODO AAZ: This is needed while the implementation only
                 assert!(results.is_empty());
