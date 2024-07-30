@@ -2149,7 +2149,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "plugins"
+name = "plugins_host"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -2605,7 +2605,7 @@ dependencies = [
  "merging",
  "mime_guess",
  "parsers",
- "plugins",
+ "plugins_host",
  "processor",
  "rustc-hash",
  "serde",
