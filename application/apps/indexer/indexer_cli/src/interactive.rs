@@ -5,7 +5,8 @@ use processor::grabber::LineRange;
 use rustyline::{error::ReadlineError, DefaultEditor};
 use session::session::Session;
 use sources::{
-    factory::{DltParserSettings, FileFormat, ObserveOptions, ParserType, PluginParserSettings},
+    factory::{DltParserSettings, FileFormat, ObserveOptions, ParserType},
+    plugins::PluginParserSettings,
     producer::MessageProducer,
     socket::udp::UdpSource,
 };
