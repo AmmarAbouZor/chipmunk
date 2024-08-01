@@ -2542,7 +2542,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2900ede94e305130c13ddd391e0ab7cbaeb783945ae07a279c268cb05109c6cb"
 
 [[package]]
-name = "plugins"
+name = "plugins_host"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -3036,7 +3036,7 @@ dependencies = [
  "merging",
  "mime_guess",
  "parsers",
- "plugins",
+ "plugins_host",
  "processor",
  "rustc-hash",
  "serde",
