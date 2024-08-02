@@ -35,7 +35,7 @@ where
 }
 
 #[async_trait]
-impl<R: Read + Send + Sync> ByteSource for BinaryByteSource<R> {
+impl<R: Read + Send> ByteSource for BinaryByteSource<R> {
     async fn reload(
         &mut self,
         _: Option<&SourceFilter>,
