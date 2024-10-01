@@ -137,77 +137,82 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
                 self.done = true;
                 return Some((0, MessageStreamItem::Done));
             }
-            match self
+            // Simplest approach:
+            // Collect items and iterate through them.
+            let items: Vec<_> = self
                 .parser
                 .parse(self.byte_source.current_slice(), self.last_seen_ts)
-            {
-                Ok((consumed, Some(m))) => {
-                    let total_used_bytes = consumed + skipped_bytes;
-                    debug!(
-                        "Extracted a valid message, consumed {} bytes (total used {} bytes)",
-                        consumed, total_used_bytes
-                    );
-                    self.byte_source.consume(consumed);
-                    return Some((total_used_bytes, MessageStreamItem::Item(m)));
-                }
-                Ok((consumed, None)) => {
-                    self.byte_source.consume(consumed);
-                    trace!("None, consumed {} bytes", consumed);
-                    let total_used_bytes = consumed + skipped_bytes;
-                    return Some((total_used_bytes, MessageStreamItem::Skipped));
-                }
-                Err(ParserError::Incomplete) => {
-                    trace!("not enough bytes to parse a message");
-                    let (newly_loaded, _available_bytes, skipped) = self.load().await?;
+                .collect();
+            for item in items {
+                match item {
+                    Ok((consumed, Some(m))) => {
+                        let total_used_bytes = consumed + skipped_bytes;
+                        debug!(
+                            "Extracted a valid message, consumed {} bytes (total used {} bytes)",
+                            consumed, total_used_bytes
+                        );
+                        self.byte_source.consume(consumed);
+                        return Some((total_used_bytes, MessageStreamItem::Item(m)));
+                    }
+                    Ok((consumed, None)) => {
+                        self.byte_source.consume(consumed);
+                        trace!("None, consumed {} bytes", consumed);
+                        let total_used_bytes = consumed + skipped_bytes;
+                        return Some((total_used_bytes, MessageStreamItem::Skipped));
+                    }
+                    Err(ParserError::Incomplete) => {
+                        trace!("not enough bytes to parse a message");
+                        let (newly_loaded, _available_bytes, skipped) = self.load().await?;
 
-                    // Stop if there is no new available bytes.
-                    if newly_loaded == 0 {
-                        trace!("No new bytes has been added. Returning Done");
-                        let unused = skipped_bytes + available;
+                        // Stop if there is no new available bytes.
+                        if newly_loaded == 0 {
+                            trace!("No new bytes has been added. Returning Done");
+                            let unused = skipped_bytes + available;
+                            self.done = true;
+
+                            return Some((unused, MessageStreamItem::Done));
+                        }
+
+                        trace!("New bytes has been loaded, trying parsing again.");
+                        available += newly_loaded;
+                        skipped_bytes += skipped;
+                        continue;
+                    }
+                    Err(ParserError::Eof) => {
+                        trace!(
+                            "EOF reached...no more messages (skipped_bytes={})",
+                            skipped_bytes
+                        );
                         self.done = true;
 
-                        return Some((unused, MessageStreamItem::Done));
+                        return None;
                     }
-
-                    trace!("New bytes has been loaded, trying parsing again.");
-                    available += newly_loaded;
-                    skipped_bytes += skipped;
-                    continue;
-                }
-                Err(ParserError::Eof) => {
-                    trace!(
-                        "EOF reached...no more messages (skipped_bytes={})",
-                        skipped_bytes
-                    );
-                    self.done = true;
-
-                    return None;
-                }
-                Err(ParserError::Parse(s)) => {
-                    trace!(
+                    Err(ParserError::Parse(s)) => {
+                        trace!(
                     "No parse possible, try next batch of data ({}), skipped {} more bytes ({} already)",
                     s, available, skipped_bytes
                 );
-                    // skip all currently available bytes
-                    self.byte_source.consume(available);
-                    skipped_bytes += available;
-                    available = self.byte_source.len();
+                        // skip all currently available bytes
+                        self.byte_source.consume(available);
+                        skipped_bytes += available;
+                        available = self.byte_source.len();
 
-                    let loaded_new_data = match self.load().await {
-                        Some((newly_loaded, _available_bytes, skipped)) => {
-                            available += newly_loaded;
-                            skipped_bytes += skipped;
+                        let loaded_new_data = match self.load().await {
+                            Some((newly_loaded, _available_bytes, skipped)) => {
+                                available += newly_loaded;
+                                skipped_bytes += skipped;
 
-                            newly_loaded > 0
+                                newly_loaded > 0
+                            }
+                            None => false,
+                        };
+
+                        // Finish if no new data are available.
+                        if !loaded_new_data {
+                            let unused = skipped_bytes + available;
+                            self.done = true;
+                            return Some((unused, MessageStreamItem::Done));
                         }
-                        None => false,
-                    };
-
-                    // Finish if no new data are available.
-                    if !loaded_new_data {
-                        let unused = skipped_bytes + available;
-                        self.done = true;
-                        return Some((unused, MessageStreamItem::Done));
                     }
                 }
             }
