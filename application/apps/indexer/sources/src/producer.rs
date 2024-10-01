@@ -175,22 +175,31 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
                         trace!("not enough bytes to parse a message");
                         if results.is_empty() {
                             trace!("No items in parse results cache. Calling load...");
-                            let (newly_loaded, _available_bytes, skipped) = self.load().await?;
+                            match self.load().await {
+                                Some((newly_loaded, _available_bytes, skipped)) => {
+                                    // Stop if there is no new available bytes.
+                                    if newly_loaded == 0 {
+                                        trace!("No new bytes has been added. Loop is done.");
+                                        let unused = skipped_bytes + available;
+                                        self.done = true;
 
-                            // Stop if there is no new available bytes.
-                            if newly_loaded == 0 {
-                                trace!("No new bytes has been added. Loop is done.");
-                                let unused = skipped_bytes + available;
-                                self.done = true;
+                                        results.push((unused, MessageStreamItem::Done));
+                                    } else {
+                                        trace!("New bytes has been loaded, trying parsing again.");
+                                        available += newly_loaded;
+                                        skipped_bytes += skipped;
 
-                                results.push((unused, MessageStreamItem::Done));
-                            } else {
-                                trace!("New bytes has been loaded, trying parsing again.");
-                                available += newly_loaded;
-                                skipped_bytes += skipped;
+                                        call_parse = true;
+                                    }
+                                }
+                                None => {
+                                    trace!("Load data return None. Loop is done.");
+                                    let unused = skipped_bytes + available;
+                                    self.done = true;
 
-                                call_parse = true;
-                            }
+                                    results.push((unused, MessageStreamItem::Done));
+                                }
+                            };
                         }
                     }
                     Err(ParserError::Eof) => {

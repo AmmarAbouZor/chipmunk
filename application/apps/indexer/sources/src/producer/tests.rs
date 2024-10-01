@@ -173,6 +173,10 @@ async fn parse_incomplete_with_err_reload() {
     let stream = producer.as_stream();
     pin_mut!(stream);
 
+    // Done message should be sent with the unused bytes.
+    let next = stream.next().await;
+    assert!(matches!(next, Some((10, MessageStreamItem::Done))));
+
     // Stream should be closed directly if reload failed after parser returning Incomplete error
     let next = stream.next().await;
     assert!(next.is_none());
