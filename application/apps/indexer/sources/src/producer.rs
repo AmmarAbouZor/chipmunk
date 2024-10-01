@@ -59,13 +59,16 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
     /// MessageStreamItem
     pub fn as_stream(&mut self) -> impl Stream<Item = (usize, MessageStreamItem<T>)> + '_ {
         stream! {
-            while let Some(item) = self.read_next_segment().await {
-                yield item;
+            //TODO AAZ: This should have bad performance but should work.
+            while let Some(items) = self.read_next_segment().await {
+                for item in items {
+                    yield item;
+                }
             }
         }
     }
 
-    async fn read_next_segment(&mut self) -> Option<(usize, MessageStreamItem<T>)> {
+    async fn read_next_segment(&mut self) -> Option<Vec<(usize, MessageStreamItem<T>)>> {
         if self.done {
             debug!("done...no next segment");
             return None;
@@ -111,11 +114,13 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
                 break 'outer self.load().await.unwrap_or((0, 0, 0));
             };
         };
+        let mut call_parse = true;
         // 1. buffer loaded? if not, fill buffer with frame data
         // 2. try to parse message from buffer
         // 3a. if message, pop it of the buffer and deliver
         // 3b. else reload into buffer and goto 2
-        loop {
+        while call_parse {
+            call_parse = false;
             let current_slice = self.byte_source.current_slice();
             // `available` and `current_slice.len()` represent the same value but can go out of sync.
             // The general unit tests for byte-sources catches this behavior but this assertion is
@@ -135,16 +140,19 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
             if available == 0 {
                 trace!("No more bytes available from source");
                 self.done = true;
-                return Some((0, MessageStreamItem::Done));
+                //TODO AAZ: I don't like this early return. Check for better solutions.
+                return Some(vec![(0, MessageStreamItem::Done)]);
             }
             // Simplest approach:
             // Collect items and iterate through them.
-            let items: Vec<_> = self
+            let parse_results: Vec<_> = self
                 .parser
                 .parse(self.byte_source.current_slice(), self.last_seen_ts)
                 .collect();
-            for item in items {
-                match item {
+            let res_len = parse_results.len();
+            let mut results = Vec::with_capacity(res_len);
+            for (idx, parse_res) in parse_results.into_iter().enumerate() {
+                match parse_res {
                     Ok((consumed, Some(m))) => {
                         let total_used_bytes = consumed + skipped_bytes;
                         debug!(
@@ -152,71 +160,106 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
                             consumed, total_used_bytes
                         );
                         self.byte_source.consume(consumed);
-                        return Some((total_used_bytes, MessageStreamItem::Item(m)));
+                        results.push((total_used_bytes, MessageStreamItem::Item(m)));
                     }
                     Ok((consumed, None)) => {
                         self.byte_source.consume(consumed);
                         trace!("None, consumed {} bytes", consumed);
                         let total_used_bytes = consumed + skipped_bytes;
-                        return Some((total_used_bytes, MessageStreamItem::Skipped));
+                        results.push((total_used_bytes, MessageStreamItem::Skipped));
                     }
                     Err(ParserError::Incomplete) => {
+                        //TODO AAZ: Remove this assert after adding unit tests to ensure that the
+                        //parsing will end after encountering the first error.
+                        assert_eq!(idx, res_len - 1);
+
                         trace!("not enough bytes to parse a message");
-                        let (newly_loaded, _available_bytes, skipped) = self.load().await?;
+                        if results.is_empty() {
+                            trace!("No items in parse results cache. Calling load...");
+                            let (newly_loaded, _available_bytes, skipped) = self.load().await?;
 
-                        // Stop if there is no new available bytes.
-                        if newly_loaded == 0 {
-                            trace!("No new bytes has been added. Returning Done");
-                            let unused = skipped_bytes + available;
-                            self.done = true;
+                            // Stop if there is no new available bytes.
+                            if newly_loaded == 0 {
+                                trace!("No new bytes has been added. Loop is done.");
+                                let unused = skipped_bytes + available;
+                                self.done = true;
 
-                            return Some((unused, MessageStreamItem::Done));
+                                results.push((unused, MessageStreamItem::Done));
+                            } else {
+                                trace!("New bytes has been loaded, trying parsing again.");
+                                available += newly_loaded;
+                                skipped_bytes += skipped;
+
+                                call_parse = true;
+                            }
                         }
-
-                        trace!("New bytes has been loaded, trying parsing again.");
-                        available += newly_loaded;
-                        skipped_bytes += skipped;
-                        continue;
                     }
                     Err(ParserError::Eof) => {
+                        //TODO AAZ: Remove this assert after adding unit tests to ensure that the
+                        //parsing will end after encountering the first error.
+                        assert_eq!(idx, res_len - 1);
+
                         trace!(
                             "EOF reached...no more messages (skipped_bytes={})",
                             skipped_bytes
                         );
-                        self.done = true;
 
-                        return None;
+                        //TODO AAZ: This wasn't in the previous implementation.
+                        self.done = true;
                     }
                     Err(ParserError::Parse(s)) => {
-                        trace!(
-                    "No parse possible, try next batch of data ({}), skipped {} more bytes ({} already)",
-                    s, available, skipped_bytes
-                );
-                        // skip all currently available bytes
-                        self.byte_source.consume(available);
-                        skipped_bytes += available;
-                        available = self.byte_source.len();
+                        //TODO AAZ: Remove this assert after adding unit tests to ensure that the
+                        //parsing will end after encountering the first error.
+                        assert_eq!(idx, res_len - 1);
+                        trace!("no parse possible.");
 
-                        let loaded_new_data = match self.load().await {
-                            Some((newly_loaded, _available_bytes, skipped)) => {
-                                available += newly_loaded;
-                                skipped_bytes += skipped;
+                        if results.is_empty() {
+                            trace!(
+                                "No items in parse result cache, try next batch of data ({}), skipped {} more bytes ({} already)",
+                                s,
+                                available,
+                                skipped_bytes
+                            );
+                            // skip all currently available bytes
+                            self.byte_source.consume(available);
+                            skipped_bytes += available;
+                            available = self.byte_source.len();
 
-                                newly_loaded > 0
+                            let loaded_new_data = match self.load().await {
+                                Some((newly_loaded, _available_bytes, skipped)) => {
+                                    available += newly_loaded;
+                                    skipped_bytes += skipped;
+
+                                    newly_loaded > 0
+                                }
+                                None => false,
+                            };
+
+                            // Call parse again with the newly loaded data.
+                            if loaded_new_data {
+                                call_parse = true;
                             }
-                            None => false,
-                        };
-
-                        // Finish if no new data are available.
-                        if !loaded_new_data {
-                            let unused = skipped_bytes + available;
-                            self.done = true;
-                            return Some((unused, MessageStreamItem::Done));
+                            // Finish if no new data are available.
+                            else {
+                                let unused = skipped_bytes + available;
+                                self.done = true;
+                                results.push((unused, MessageStreamItem::Done));
+                            }
                         }
                     }
                 }
             }
+            if call_parse {
+                //TODO AAZ: Cover this assert in unit tests and convert this to debug assert.
+                assert!(results.is_empty());
+            } else if results.is_empty() {
+                return None;
+            } else {
+                return Some(results);
+            }
         }
+
+        unreachable!()
     }
 
     /// Calls load on the underline byte source filling it with more bytes.
