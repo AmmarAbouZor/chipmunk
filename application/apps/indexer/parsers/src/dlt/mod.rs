@@ -119,36 +119,24 @@ impl<'m> DltParser<'m> {
             offset: 0,
         }
     }
-}
 
-impl From<DltParseError> for Error {
-    fn from(value: DltParseError) -> Self {
-        match value {
-            DltParseError::Unrecoverable(e) | DltParseError::ParsingHickup(e) => {
-                Error::Parse(e.to_string())
-            }
-            DltParseError::IncompleteParse { needed: _ } => Error::Incomplete,
-        }
-    }
-}
-
-impl<'m> Parser<FormattableMessage<'m>> for DltParser<'m> {
-    fn parse(
+    // NOTE: This has the original implementation to DLT parser.
+    // TODO AAZ: This is for test purposes only.
+    fn parse_intern(
         &mut self,
         input: &[u8],
         timestamp: Option<u64>,
-    ) -> impl Iterator<Item = Result<(usize, Option<ParseYield<FormattableMessage<'m>>>), Error>>
-    {
-        let res = match dlt_message(input, self.filter_config.as_ref(), self.with_storage_header) {
-            Ok((rest, dlt_core::parse::ParsedMessage::FilteredOut(_n))) => {
+    ) -> Result<(usize, Option<ParseYield<FormattableMessage<'m>>>), Error> {
+        match dlt_message(input, self.filter_config.as_ref(), self.with_storage_header)? {
+            (rest, dlt_core::parse::ParsedMessage::FilteredOut(_n)) => {
                 let consumed = input.len() - rest.len();
                 self.offset += consumed;
                 Ok((consumed, None))
             }
-            Ok((_, dlt_core::parse::ParsedMessage::Invalid)) => {
+            (_, dlt_core::parse::ParsedMessage::Invalid) => {
                 Err(Error::Parse("Invalid parse".to_owned()))
             }
-            Ok((rest, dlt_core::parse::ParsedMessage::Item(i))) => {
+            (rest, dlt_core::parse::ParsedMessage::Item(i)) => {
                 let attachment = self.ft_scanner.process(&i);
                 let msg_with_storage_header = if i.storage_header.is_some() {
                     i
@@ -173,10 +161,48 @@ impl<'m> Parser<FormattableMessage<'m>> for DltParser<'m> {
                     },
                 ))
             }
-            Err(err) => Err(err.into()),
-        };
+        }
+    }
+}
 
-        iter::once(res)
+impl From<DltParseError> for Error {
+    fn from(value: DltParseError) -> Self {
+        match value {
+            DltParseError::Unrecoverable(e) | DltParseError::ParsingHickup(e) => {
+                Error::Parse(e.to_string())
+            }
+            DltParseError::IncompleteParse { needed: _ } => Error::Incomplete,
+        }
+    }
+}
+
+impl<'m> Parser<FormattableMessage<'m>> for DltParser<'m> {
+    fn parse(
+        &mut self,
+        input: &[u8],
+        timestamp: Option<u64>,
+    ) -> impl Iterator<Item = Result<(usize, Option<ParseYield<FormattableMessage<'m>>>), Error>>
+    {
+        let mut input = &input[..];
+        let mut errored = false;
+
+        iter::from_fn(move || {
+            if errored {
+                return None;
+            }
+
+            match self.parse_intern(input, timestamp) {
+                Ok(res) => {
+                    input = &input[res.0..];
+
+                    Some(Ok(res))
+                }
+                Err(err) => {
+                    errored = true;
+                    Some(Err(err))
+                }
+            }
+        })
     }
 }
 
