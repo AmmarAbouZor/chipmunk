@@ -1,6 +1,6 @@
 use crate::{Error, LogMessage, ParseYield, Parser};
 use serde::Serialize;
-use std::{fmt, io::Write};
+use std::{fmt, io::Write, iter};
 
 pub struct StringTokenizer {}
 
@@ -31,13 +31,13 @@ where
         &mut self,
         input: &[u8],
         _timestamp: Option<u64>,
-    ) -> Result<(usize, Option<ParseYield<StringMessage>>), Error> {
+    ) -> impl Iterator<Item = Result<(usize, Option<ParseYield<StringMessage>>), Error>> {
         // TODO: support non-utf8 encodings
         use memchr::memchr;
         if input.is_empty() {
-            return Ok((input.len(), None));
+            return iter::once(Ok((input.len(), None)));
         }
-        if let Some(msg_size) = memchr(b'\n', input) {
+        let res = if let Some(msg_size) = memchr(b'\n', input) {
             let content = String::from_utf8_lossy(&input[..msg_size]);
             let string_msg = StringMessage {
                 content: content.to_string(),
@@ -50,7 +50,9 @@ where
                     content: String::new(),
                 })),
             ))
-        }
+        };
+
+        iter::once(res)
     }
 }
 
@@ -58,20 +60,20 @@ where
 fn test_string_tokenizer() {
     let mut parser = StringTokenizer {};
     let content = b"hello\nworld\n";
-    let (consumed_1, first_msg) = parser.parse(content, None).unwrap();
+    let (consumed_1, first_msg) = parser.parse(content, None).next().unwrap().unwrap();
     match first_msg {
         Some(ParseYield::Message(StringMessage { content })) if content.eq("hello") => {}
         _ => panic!("First message did not match"),
     }
     let rest_1 = &content[consumed_1..];
     println!("rest_1 = {:?}", String::from_utf8_lossy(rest_1));
-    let (consumed_2, second_msg) = parser.parse(rest_1, None).unwrap();
+    let (consumed_2, second_msg) = parser.parse(rest_1, None).next().unwrap().unwrap();
     match second_msg {
         Some(ParseYield::Message(StringMessage { content })) if content.eq("world") => {}
         _ => panic!("Second message did not match"),
     }
     let rest_2 = &rest_1[consumed_2..];
-    let (consumed_3, third_msg) = parser.parse(rest_2, None).unwrap();
+    let (consumed_3, third_msg) = parser.parse(rest_2, None).next().unwrap().unwrap();
     println!(
         "rest_3 = {:?}",
         String::from_utf8_lossy(&rest_2[consumed_3..])

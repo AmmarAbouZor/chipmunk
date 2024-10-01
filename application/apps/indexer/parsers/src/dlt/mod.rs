@@ -16,7 +16,7 @@ pub use dlt_core::{
     filtering::{DltFilterConfig, ProcessedDltFilterConfig},
 };
 use serde::Serialize;
-use std::{io::Write, ops::Range};
+use std::{io::Write, iter, ops::Range};
 
 use self::{attachment::FtScanner, fmt::FormatOptions};
 
@@ -137,17 +137,18 @@ impl<'m> Parser<FormattableMessage<'m>> for DltParser<'m> {
         &mut self,
         input: &[u8],
         timestamp: Option<u64>,
-    ) -> Result<(usize, Option<ParseYield<FormattableMessage<'m>>>), Error> {
-        match dlt_message(input, self.filter_config.as_ref(), self.with_storage_header)? {
-            (rest, dlt_core::parse::ParsedMessage::FilteredOut(_n)) => {
+    ) -> impl Iterator<Item = Result<(usize, Option<ParseYield<FormattableMessage<'m>>>), Error>>
+    {
+        let res = match dlt_message(input, self.filter_config.as_ref(), self.with_storage_header) {
+            Ok((rest, dlt_core::parse::ParsedMessage::FilteredOut(_n))) => {
                 let consumed = input.len() - rest.len();
                 self.offset += consumed;
                 Ok((consumed, None))
             }
-            (_, dlt_core::parse::ParsedMessage::Invalid) => {
+            Ok((_, dlt_core::parse::ParsedMessage::Invalid)) => {
                 Err(Error::Parse("Invalid parse".to_owned()))
             }
-            (rest, dlt_core::parse::ParsedMessage::Item(i)) => {
+            Ok((rest, dlt_core::parse::ParsedMessage::Item(i))) => {
                 let attachment = self.ft_scanner.process(&i);
                 let msg_with_storage_header = if i.storage_header.is_some() {
                     i
@@ -172,7 +173,10 @@ impl<'m> Parser<FormattableMessage<'m>> for DltParser<'m> {
                     },
                 ))
             }
-        }
+            Err(err) => Err(err.into()),
+        };
+
+        iter::once(res)
     }
 }
 
@@ -181,8 +185,11 @@ impl Parser<RangeMessage> for DltRangeParser {
         &mut self,
         input: &[u8],
         _timestamp: Option<u64>,
-    ) -> Result<(usize, Option<ParseYield<RangeMessage>>), Error> {
-        let (rest, consumed) = dlt_consume_msg(input).map_err(|e| Error::Parse(format!("{e}")))?;
+    ) -> impl Iterator<Item = Result<(usize, Option<ParseYield<RangeMessage>>), Error>> {
+        let (rest, consumed) = match dlt_consume_msg(input) {
+            Ok((rest, consumed)) => (rest, consumed),
+            Err(e) => return iter::once(Err(Error::Parse(format!("{e}")))),
+        };
         let msg = consumed.map(|c| {
             self.offset += c as usize;
             RangeMessage {
@@ -193,7 +200,9 @@ impl Parser<RangeMessage> for DltRangeParser {
             }
         });
         let total_consumed = input.len() - rest.len();
-        Ok((total_consumed, msg.map(|m| m.into())))
+        let res = Ok((total_consumed, msg.map(|m| m.into())));
+
+        iter::once(res)
     }
 }
 
@@ -202,12 +211,16 @@ impl Parser<RawMessage> for DltRawParser {
         &mut self,
         input: &[u8],
         _timestamp: Option<u64>,
-    ) -> Result<(usize, Option<ParseYield<RawMessage>>), Error> {
-        let (rest, consumed) = dlt_consume_msg(input).map_err(|e| Error::Parse(format!("{e}")))?;
+    ) -> impl Iterator<Item = Result<(usize, Option<ParseYield<RawMessage>>), Error>> {
+        let (rest, consumed) = match dlt_consume_msg(input) {
+            Ok((rest, consumed)) => (rest, consumed),
+            Err(e) => return iter::once(Err(Error::Parse(format!("{e}")))),
+        };
         let msg = consumed.map(|c| RawMessage {
             content: Vec::from(&input[0..c as usize]),
         });
         let total_consumed = input.len() - rest.len();
-        Ok((total_consumed, msg.map(|m| m.into())))
+        let res = Ok((total_consumed, msg.map(|m| m.into())));
+        iter::once(res)
     }
 }
