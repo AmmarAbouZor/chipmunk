@@ -57,17 +57,16 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
     }
     /// create a stream of pairs that contain the count of all consumed bytes and the
     /// MessageStreamItem
-    pub fn as_stream(
-        &mut self,
-    ) -> impl Stream<Item = impl Iterator<Item = (usize, MessageStreamItem<T>)>> + '_ {
+    pub fn as_stream(&mut self) -> impl Stream<Item = Box<[(usize, MessageStreamItem<T>)]>> + '_ {
         stream! {
             while let Some(items) = self.read_next_segment().await {
-                yield items.into_iter();
+
+                yield items;
             }
         }
     }
 
-    async fn read_next_segment(&mut self) -> Option<Vec<(usize, MessageStreamItem<T>)>> {
+    async fn read_next_segment(&mut self) -> Option<Box<[(usize, MessageStreamItem<T>)]>> {
         if self.done {
             debug!("done...no next segment");
             return None;
@@ -140,7 +139,7 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
                 trace!("No more bytes available from source");
                 self.done = true;
                 //TODO AAZ: I don't like this early return. Check for better solutions.
-                return Some(vec![(0, MessageStreamItem::Done)]);
+                return Some(Box::new([(0, MessageStreamItem::Done)]));
             }
             // Simplest approach:
             // Collect items and iterate through them.
@@ -263,7 +262,7 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
             } else if results.is_empty() {
                 return None;
             } else {
-                return Some(results);
+                return Some(results.into_boxed_slice());
             }
         }
 

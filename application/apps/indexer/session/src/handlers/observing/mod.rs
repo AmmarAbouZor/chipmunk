@@ -24,8 +24,8 @@ use tokio::{
 };
 use tokio_stream::StreamExt;
 
-enum Next<T: LogMessage, I: Iterator<Item = (usize, MessageStreamItem<T>)>> {
-    Items(I),
+enum Next<T: LogMessage> {
+    Items(Box<[(usize, MessageStreamItem<T>)]>),
     Timeout,
     Waiting,
 }
