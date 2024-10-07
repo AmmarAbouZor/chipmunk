@@ -179,11 +179,10 @@ impl From<DltParseError> for Error {
 impl<'m> Parser<FormattableMessage<'m>> for DltParser<'m> {
     fn parse(
         &mut self,
-        input: &[u8],
+        mut input: &[u8],
         timestamp: Option<u64>,
     ) -> impl Iterator<Item = Result<(usize, Option<ParseYield<FormattableMessage<'m>>>), Error>>
     {
-        let mut input = &input[..];
         let mut errored = false;
 
         iter::from_fn(move || {
