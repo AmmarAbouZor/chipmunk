@@ -143,15 +143,31 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
                 //TODO AAZ: I don't like this early return. Check for better solutions.
                 return Some(Box::new([(0, MessageStreamItem::Done)]));
             }
-            // Simplest approach:
-            // Collect items and iterate through them.
-            let parse_results: Vec<_> = self
-                .parser
-                .parse(self.byte_source.current_slice(), self.last_seen_ts)
-                .collect();
-            let res_len = parse_results.len();
-            let mut results = Vec::with_capacity(res_len);
-            for (idx, parse_res) in parse_results.into_iter().enumerate() {
+
+            //TODO AAZ: Investigate more here.
+            // This is the only way currently to get the size hint of the iterator without
+            // invoking the error about Send implementation isn't general enough
+            let (parse_results, items_size) = {
+                let iter = self
+                    .parser
+                    .parse(self.byte_source.current_slice(), self.last_seen_ts);
+                // If iterator can't tell its size then start with 4 value to avoid 3 memory
+                // allocation when vector growths in size 0=>1=>2=>4. Since it will have most
+                // likely more that one item.
+                let items_size = iter.size_hint().1.unwrap_or(4);
+                (iter, items_size)
+            };
+
+            let mut total_consumed = 0;
+            let mut errored_incomplete = false;
+            let mut errored_parser_error = false;
+
+            let mut results = Vec::with_capacity(items_size);
+            for parse_res in parse_results {
+                //TODO AAZ: Leave comment here if this is needed in final solution.
+                debug_assert!(!errored_incomplete);
+                debug_assert!(!errored_parser_error);
+
                 match parse_res {
                     Ok((consumed, Some(m))) => {
                         let total_used_bytes = consumed + skipped_bytes;
@@ -159,55 +175,20 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
                             "Extracted a valid message, consumed {} bytes (total used {} bytes)",
                             consumed, total_used_bytes
                         );
-                        self.byte_source.consume(consumed);
+                        total_consumed += consumed;
                         results.push((total_used_bytes, MessageStreamItem::Item(m)));
                     }
                     Ok((consumed, None)) => {
-                        self.byte_source.consume(consumed);
+                        total_consumed += consumed;
                         trace!("None, consumed {} bytes", consumed);
                         let total_used_bytes = consumed + skipped_bytes;
                         results.push((total_used_bytes, MessageStreamItem::Skipped));
                     }
                     Err(ParserError::Incomplete) => {
-                        //TODO AAZ: Remove this assert after adding unit tests to ensure that the
-                        //parsing will end after encountering the first error.
-                        assert_eq!(idx, res_len - 1);
-
                         trace!("not enough bytes to parse a message");
-                        if results.is_empty() {
-                            trace!("No items in parse results cache. Calling load...");
-                            match self.load().await {
-                                Some((newly_loaded, _available_bytes, skipped)) => {
-                                    // Stop if there is no new available bytes.
-                                    if newly_loaded == 0 {
-                                        trace!("No new bytes has been added. Loop is done.");
-                                        let unused = skipped_bytes + available;
-                                        self.done = true;
-
-                                        results.push((unused, MessageStreamItem::Done));
-                                    } else {
-                                        trace!("New bytes has been loaded, trying parsing again.");
-                                        available += newly_loaded;
-                                        skipped_bytes += skipped;
-
-                                        call_parse = true;
-                                    }
-                                }
-                                None => {
-                                    trace!("Load data return None. Loop is done.");
-                                    let unused = skipped_bytes + available;
-                                    self.done = true;
-
-                                    results.push((unused, MessageStreamItem::Done));
-                                }
-                            };
-                        }
+                        errored_incomplete = true;
                     }
                     Err(ParserError::Eof) => {
-                        //TODO AAZ: Remove this assert after adding unit tests to ensure that the
-                        //parsing will end after encountering the first error.
-                        assert_eq!(idx, res_len - 1);
-
                         trace!(
                             "EOF reached...no more messages (skipped_bytes={})",
                             skipped_bytes
@@ -217,47 +198,76 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
                         self.done = true;
                     }
                     Err(ParserError::Parse(s)) => {
-                        //TODO AAZ: Remove this assert after adding unit tests to ensure that the
-                        //parsing will end after encountering the first error.
-                        assert_eq!(idx, res_len - 1);
-                        trace!("no parse possible.");
-
-                        if results.is_empty() {
-                            trace!(
-                                "No items in parse result cache, try next batch of data ({}), skipped {} more bytes ({} already)",
-                                s,
-                                available,
-                                skipped_bytes
-                            );
-                            // skip all currently available bytes
-                            self.byte_source.consume(available);
-                            skipped_bytes += available;
-                            available = self.byte_source.len();
-
-                            let loaded_new_data = match self.load().await {
-                                Some((newly_loaded, _available_bytes, skipped)) => {
-                                    available += newly_loaded;
-                                    skipped_bytes += skipped;
-
-                                    newly_loaded > 0
-                                }
-                                None => false,
-                            };
-
-                            // Call parse again with the newly loaded data.
-                            if loaded_new_data {
-                                call_parse = true;
-                            }
-                            // Finish if no new data are available.
-                            else {
-                                let unused = skipped_bytes + available;
-                                self.done = true;
-                                results.push((unused, MessageStreamItem::Done));
-                            }
-                        }
+                        trace!("Parse Error from parser: {s}");
+                        errored_parser_error = true;
                     }
                 }
             }
+
+            self.byte_source.consume(total_consumed);
+
+            if errored_incomplete && results.is_empty() {
+                trace!("No items in parse results cache. Calling load...");
+                match self.load().await {
+                    Some((newly_loaded, _available_bytes, skipped)) => {
+                        // Stop if there is no new available bytes.
+                        if newly_loaded == 0 {
+                            trace!("No new bytes has been added. Loop is done.");
+                            let unused = skipped_bytes + available;
+                            self.done = true;
+
+                            results.push((unused, MessageStreamItem::Done));
+                        } else {
+                            trace!("New bytes has been loaded, trying parsing again.");
+                            available += newly_loaded;
+                            skipped_bytes += skipped;
+
+                            call_parse = true;
+                        }
+                    }
+                    None => {
+                        trace!("Load data return None. Loop is done.");
+                        let unused = skipped_bytes + available;
+                        self.done = true;
+
+                        results.push((unused, MessageStreamItem::Done));
+                    }
+                };
+            }
+
+            if errored_parser_error && results.is_empty() {
+                trace!(
+                                "No items in parse result cache, try next batch of data, skipped {} more bytes ({} already)",
+                                available,
+                                skipped_bytes
+                            );
+                // skip all currently available bytes
+                self.byte_source.consume(available);
+                skipped_bytes += available;
+                available = self.byte_source.len();
+
+                let loaded_new_data = match self.load().await {
+                    Some((newly_loaded, _available_bytes, skipped)) => {
+                        available += newly_loaded;
+                        skipped_bytes += skipped;
+
+                        newly_loaded > 0
+                    }
+                    None => false,
+                };
+
+                // Call parse again with the newly loaded data.
+                if loaded_new_data {
+                    call_parse = true;
+                }
+                // Finish if no new data are available.
+                else {
+                    let unused = skipped_bytes + available;
+                    self.done = true;
+                    results.push((unused, MessageStreamItem::Done));
+                }
+            }
+
             if call_parse {
                 //TODO AAZ: Cover this assert in unit tests and convert this to debug assert.
                 assert!(results.is_empty());
