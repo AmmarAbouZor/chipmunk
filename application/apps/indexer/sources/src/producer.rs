@@ -202,7 +202,9 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
                 }
             }
 
-            self.byte_source.consume(total_consumed);
+            if total_consumed > 0 {
+                self.byte_source.consume(total_consumed);
+            }
 
             if errored_incomplete && results.is_empty() {
                 trace!("No items in parse results cache. Calling load...");
