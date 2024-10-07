@@ -122,6 +122,7 @@ impl<'m> DltParser<'m> {
 
     // NOTE: This has the original implementation to DLT parser.
     // TODO AAZ: This is for test purposes only.
+    #[inline(always)]
     fn parse_intern(
         &mut self,
         input: &[u8],
@@ -179,29 +180,33 @@ impl From<DltParseError> for Error {
 impl<'m> Parser<FormattableMessage<'m>> for DltParser<'m> {
     fn parse(
         &mut self,
-        mut input: &[u8],
+        input: &[u8],
         timestamp: Option<u64>,
     ) -> impl Iterator<Item = Result<(usize, Option<ParseYield<FormattableMessage<'m>>>), Error>>
     {
-        let mut errored = false;
+        iter::once(self.parse_intern(input, timestamp))
 
-        iter::from_fn(move || {
-            if errored {
-                return None;
-            }
-
-            match self.parse_intern(input, timestamp) {
-                Ok(res) => {
-                    input = &input[res.0..];
-
-                    Some(Ok(res))
-                }
-                Err(err) => {
-                    errored = true;
-                    Some(Err(err))
-                }
-            }
-        })
+        // // This kept here to compare the version with parsers which deliver multiple values.
+        // let mut input = input;
+        // let mut errored = false;
+        //
+        // iter::from_fn(move || {
+        //     if errored {
+        //         return None;
+        //     }
+        //
+        //     match self.parse_intern(input, timestamp) {
+        //         Ok(res) => {
+        //             input = &input[res.0..];
+        //
+        //             Some(Ok(res))
+        //         }
+        //         Err(err) => {
+        //             errored = true;
+        //             Some(Err(err))
+        //         }
+        //     }
+        // })
     }
 }
 
