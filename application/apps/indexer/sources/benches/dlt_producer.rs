@@ -34,7 +34,7 @@ fn dlt_producer(c: &mut Criterion) {
             .to_async(tokio::runtime::Runtime::new().unwrap())
             .iter_batched(
                 || {
-                    let parser = DltParser::new(None, fibex.as_ref(), None, None, false);
+                    let parser = DltParser::new(None, fibex.as_ref(), None, None, true);
                     let source = create_binary_bytesource(data);
                     let producer = MessageProducer::new(parser, source, black_box(None));
 
@@ -48,7 +48,7 @@ fn dlt_producer(c: &mut Criterion) {
 
 criterion_group! {
     name = benches;
-    config = bench_standrad_config();
+    config = bench_standrad_config().sample_size(10);
     targets = dlt_producer
 }
 
