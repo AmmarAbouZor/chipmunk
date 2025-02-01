@@ -5,7 +5,8 @@ use std::{
 
 use futures::StreamExt;
 use indexer_base::config::IndexSection;
-use parsers::{LogMessage, MessageStreamItem, ParseYield};
+use parsers::{LogMessage, MessageStreamItem, ParseYield, Parser};
+use sources::{producer::MessageProducer, ByteSource};
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 
@@ -39,8 +40,8 @@ pub enum ExportError {
 ///
 /// # Errors
 /// In case of cancellation will return ExportError::Cancelled
-pub async fn export_raw<S, T>(
-    mut s: S,
+pub async fn export_raw<T, P, D>(
+    mut producer: MessageProducer<T, P, D>,
     destination_path: &Path,
     sections: &Vec<IndexSection>,
     read_to_end: bool,
@@ -49,7 +50,8 @@ pub async fn export_raw<S, T>(
 ) -> Result<usize, ExportError>
 where
     T: LogMessage + Sized,
-    S: futures::Stream<Item = Box<[(usize, MessageStreamItem<T>)]>> + Unpin,
+    P: Parser<T>,
+    D: ByteSource,
 {
     trace!("export_raw, sections: {sections:?}");
     if !sections_valid(sections) {
@@ -67,15 +69,16 @@ where
     let mut current_index = 0usize;
     let mut inside = false;
     let mut exported = 0usize;
+    let mut buffer = Vec::new();
     if sections.is_empty() {
         debug!("no sections configured");
         // export everything
-        'outer: while let Some(items) = s.next().await {
+        'outer: while producer.read_next_segment(&mut buffer).await {
             if cancel.is_cancelled() {
                 return Err(ExportError::Cancelled);
             }
 
-            for (_, item) in items {
+            for (_, item) in buffer.iter() {
                 let written = match item {
                     MessageStreamItem::Item(ParseYield::Message(msg)) => {
                         msg.to_writer(&mut out_writer)?;
@@ -99,11 +102,11 @@ where
         return Ok(exported);
     }
 
-    'outer: while let Some(items) = s.next().await {
+    'outer: while producer.read_next_segment(&mut buffer).await {
         if cancel.is_cancelled() {
             return Err(ExportError::Cancelled);
         }
-        for (_, item) in items {
+        for (_, item) in buffer.iter() {
             if !inside {
                 if sections[section_index].first_line == current_index {
                     inside = true;
@@ -150,11 +153,11 @@ where
         }
     }
     if read_to_end {
-        'outer: while let Some(items) = s.next().await {
+        'outer: while producer.read_next_segment(&mut buffer).await {
             if cancel.is_cancelled() {
                 return Err(ExportError::Cancelled);
             }
-            for (_, item) in items {
+            for (_, item) in buffer.iter() {
                 match item {
                     MessageStreamItem::Item(_) => {
                         current_index += 1;

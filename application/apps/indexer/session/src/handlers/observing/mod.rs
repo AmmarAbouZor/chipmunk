@@ -23,8 +23,8 @@ use tokio::{
 };
 use tokio_stream::StreamExt;
 
-enum Next<T: LogMessage> {
-    Items(Box<[(usize, MessageStreamItem<T>)]>),
+enum Next {
+    Items,
     Timeout,
     Waiting,
 }
@@ -120,15 +120,14 @@ async fn run_producer<T: LogMessage, P: Parser<T>, S: ByteSource>(
     state.set_session_file(None).await?;
     operation_api.processing();
     let cancel = operation_api.cancellation_token();
-    let stream = producer.as_stream();
-    futures::pin_mut!(stream);
     let cancel_on_tail = cancel.clone();
+    let mut buffer = Vec::new();
     while let Some(next) = select! {
         next_from_stream = async {
-            match timeout(Duration::from_millis(FLUSH_TIMEOUT_IN_MS as u64), stream.next()).await {
-                Ok(items) => {
-                    if let Some(items) = items {
-                        Some(Next::Items(items))
+            match timeout(Duration::from_millis(FLUSH_TIMEOUT_IN_MS as u64), producer.read_next_segment(&mut buffer)).await {
+                Ok(load) => {
+                    if load {
+                        Some(Next::Items)
                     } else {
                         Some(Next::Waiting)
                     }
@@ -139,8 +138,8 @@ async fn run_producer<T: LogMessage, P: Parser<T>, S: ByteSource>(
         _ = cancel.cancelled() => None,
     } {
         match next {
-            Next::Items(items) => {
-                for (_, item) in items {
+            Next::Items => {
+                for (_, item) in buffer.drain(..) {
                     match item {
                         MessageStreamItem::Item(ParseYield::Message(item)) => {
                             state

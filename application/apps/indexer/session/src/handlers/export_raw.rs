@@ -5,7 +5,7 @@ use parsers::{
     dlt::{fmt::FormatOptions, DltParser},
     someip::SomeipParser,
     text::StringTokenizer,
-    LogMessage, MessageStreamItem,
+    LogMessage, MessageStreamItem, Parser,
 };
 use processor::export::{export_raw, ExportError};
 use sources::{
@@ -138,16 +138,8 @@ async fn export<S: ByteSource>(
             } else {
                 SomeipParser::new()
             };
-            let mut producer = MessageProducer::new(parser, source, None);
-            export_runner(
-                Box::pin(producer.as_stream()),
-                dest,
-                sections,
-                read_to_end,
-                false,
-                cancel,
-            )
-            .await
+            let producer = MessageProducer::new(parser, source, None);
+            export_runner(producer, dest, sections, read_to_end, false, cancel).await
         }
         stypes::ParserType::Dlt(settings) => {
             let fmt_options = Some(FormatOptions::from(settings.tz.as_ref()));
@@ -159,33 +151,17 @@ async fn export<S: ByteSource>(
                 settings.with_storage_header,
             );
             let mut producer = MessageProducer::new(parser, source, None);
-            export_runner(
-                Box::pin(producer.as_stream()),
-                dest,
-                sections,
-                read_to_end,
-                false,
-                cancel,
-            )
-            .await
+            export_runner(producer, dest, sections, read_to_end, false, cancel).await
         }
         stypes::ParserType::Text(()) => {
             let mut producer = MessageProducer::new(StringTokenizer {}, source, None);
-            export_runner(
-                Box::pin(producer.as_stream()),
-                dest,
-                sections,
-                read_to_end,
-                true,
-                cancel,
-            )
-            .await
+            export_runner(producer, dest, sections, read_to_end, true, cancel).await
         }
     }
 }
 
-pub async fn export_runner<S, T>(
-    s: S,
+pub async fn export_runner<P, D, T>(
+    producer: MessageProducer<T, P, D>,
     dest: &Path,
     sections: &Vec<IndexSection>,
     read_to_end: bool,
@@ -194,9 +170,10 @@ pub async fn export_runner<S, T>(
 ) -> Result<Option<usize>, stypes::NativeError>
 where
     T: LogMessage + Sized,
-    S: futures::Stream<Item = Box<[(usize, MessageStreamItem<T>)]>> + Unpin,
+    P: Parser<T>,
+    D: ByteSource,
 {
-    export_raw(s, dest, sections, read_to_end, text_file, cancel)
+    export_raw(producer, dest, sections, read_to_end, text_file, cancel)
         .await
         .map_or_else(
             |err| match err {

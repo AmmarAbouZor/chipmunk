@@ -16,7 +16,6 @@ extern crate indexer_base;
 extern crate log;
 
 use dlt_core::filtering::DltFilterConfig;
-use futures::pin_mut;
 use parsers::{dlt::DltParser, Attachment, MessageStreamItem, ParseYield};
 use sources::{binary::raw::BinaryByteSource, producer::MessageProducer};
 use std::{
@@ -43,34 +42,31 @@ pub async fn scan_dlt_ft(
                 None,
                 with_storage_header,
             );
+            let mut buffer = Vec::new();
             let mut producer = MessageProducer::new(parser, source, None);
-            let stream = producer.as_stream();
-            pin_mut!(stream);
 
             let mut canceled = false;
 
             let mut attachments = vec![];
             loop {
                 tokio::select! {
-                    _ = cancel.cancelled() => {
-                        debug!("scan canceled");
-                        canceled = true;
-                        break;
-                    }
-                    items = tokio_stream::StreamExt::next(&mut stream) => {
-                        match items {
-                            Some(items) => {
-                                for (_, item) in items {
-                                    if let MessageStreamItem::Item(ParseYield::MessageAndAttachment((_msg, attachment))) = item {
-                                        attachments.push(attachment);
-                                    } else if let MessageStreamItem::Item(ParseYield::Attachment(attachment)) = item {
-                                        attachments.push(attachment);
-                                    }
+                _ = cancel.cancelled() => {
+                    debug!("scan canceled");
+                    canceled = true;
+                    break;
+                }
+                loaded = producer.read_next_segment(&mut buffer) => {
+                    if loaded {
+                            for (_, item) in buffer.drain(..) {
+                                if let MessageStreamItem::Item(ParseYield::MessageAndAttachment((_msg, attachment))) = item {
+                                    attachments.push(attachment);
+                                } else if let MessageStreamItem::Item(ParseYield::Attachment(attachment)) = item {
+                                    attachments.push(attachment);
                                 }
                             }
-                            _ => {
-                                break;
-                            }
+                        }
+                        else{
+                            break;
                         }
                     }
                 }

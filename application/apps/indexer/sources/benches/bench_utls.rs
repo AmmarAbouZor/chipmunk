@@ -9,6 +9,7 @@ use std::{
     time::Duration,
 };
 
+use bytes::buf;
 use criterion::Criterion;
 use parsers::{LogMessage, MessageStreamItem};
 use sources::{binary::raw::BinaryByteSource, producer::MessageProducer};
@@ -82,11 +83,13 @@ where
 {
     let mut counter = ProducerCounter::default();
 
-    let s = producer.as_stream();
-    tokio::pin!(s);
+    let mut buffer = Vec::new();
 
-    while let Some(items) = s.next().await {
-        for (_, i) in items {
+    // let s = producer.as_stream(&mut buffer);
+    // tokio::pin!(s);
+
+    while producer.read_next_segment(&mut buffer).await {
+        for (_, i) in buffer.drain(..) {
             match i {
                 MessageStreamItem::Item(item) => match item {
                     parsers::ParseYield::Message(msg) => {

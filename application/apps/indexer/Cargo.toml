@@ -7,7 +7,8 @@ members = [
     "addons/file-tools",
     "addons/text_grep",
     "indexer_base",
-    "indexer_cli",
+  # TODO AAZ: Reactivate if this ever got to production
+    # "indexer_cli",
     "merging",
     "parsers",
     "processor",

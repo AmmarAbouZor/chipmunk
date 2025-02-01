@@ -2,7 +2,6 @@
 mod tests;
 
 use crate::{sde::SdeMsg, ByteSource, ReloadInfo, SourceFilter};
-use async_stream::stream;
 use log::warn;
 use parsers::{Error as ParserError, LogMessage, MessageStreamItem, Parser};
 use std::marker::PhantomData;
@@ -10,7 +9,6 @@ use tokio::{
     select,
     sync::mpsc::{UnboundedReceiver, UnboundedSender},
 };
-use tokio_stream::Stream;
 
 pub type SdeSender = UnboundedSender<SdeMsg>;
 pub type SdeReceiver = UnboundedReceiver<SdeMsg>;
@@ -55,20 +53,25 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
             rx_sde,
         }
     }
-    /// create a stream of pairs that contain the count of all consumed bytes and the
-    /// MessageStreamItems in a boxed slice
-    pub fn as_stream(&mut self) -> impl Stream<Item = Box<[(usize, MessageStreamItem<T>)]>> + '_ {
-        stream! {
-            while let Some(items) = self.read_next_segment().await {
-                yield items;
-            }
-        }
-    }
+    ///// create a stream of pairs that contain the count of all consumed bytes and the
+    ///// MessageStreamItems in a boxed slice
+    //pub fn as_stream(&mut self) -> impl Stream<Item = Box<[(usize, MessageStreamItem<T>)]>> + '_ {
+    //    stream! {
+    //        let mut buffer = Vec::new();
+    //        while self.read_next_segment(&mut buffer).await {
+    //            yield buffer.drain(..).collect();
+    //        }
+    //    }
+    //}
 
-    async fn read_next_segment(&mut self) -> Option<Box<[(usize, MessageStreamItem<T>)]>> {
+    pub async fn read_next_segment(
+        &mut self,
+        buffer: &mut Vec<(usize, MessageStreamItem<T>)>,
+    ) -> bool {
+        buffer.clear();
         if self.done {
             debug!("done...no next segment");
-            return None;
+            return false;
         }
         self.index += 1;
         let (_newly_loaded, mut available, mut skipped_bytes) = 'outer: loop {
@@ -135,7 +138,8 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
             if available == 0 {
                 trace!("No more bytes available from source");
                 self.done = true;
-                return Some(Box::new([(0, MessageStreamItem::Done)]));
+                buffer.push((0, MessageStreamItem::Done));
+                return true;
             }
 
             // we can call consume only after all parse results are collected because of its
@@ -171,11 +175,14 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
                 }) {
                 Ok(items) => {
                     self.byte_source.consume(total_consumed);
-                    return Some(items);
+                    buffer.extend(items);
+                    return true;
                 }
                 Err(ParserError::Incomplete) => {
                     trace!("not enough bytes to parse a message");
-                    let (newly_loaded, _available_bytes, skipped) = self.load().await?;
+                    let Some((newly_loaded, _available_bytes, skipped)) = self.load().await else {
+                        return false;
+                    };
 
                     // Stop if there is no new available bytes.
                     if newly_loaded == 0 {
@@ -183,7 +190,8 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
                         let unused = skipped_bytes + available;
                         self.done = true;
 
-                        return Some(Box::new([(unused, MessageStreamItem::Done)]));
+                        buffer.push((unused, MessageStreamItem::Done));
+                        return true;
                     }
 
                     trace!("New bytes has been loaded, trying parsing again.");
@@ -198,7 +206,7 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
                     );
                     self.done = true;
 
-                    return None;
+                    return false;
                 }
                 Err(ParserError::Parse(s)) => {
                     trace!(
@@ -224,7 +232,9 @@ impl<T: LogMessage, P: Parser<T>, D: ByteSource> MessageProducer<T, P, D> {
                     if !loaded_new_data {
                         let unused = skipped_bytes + available;
                         self.done = true;
-                        return Some(Box::new([(unused, MessageStreamItem::Done)]));
+
+                        buffer.push((unused, MessageStreamItem::Done));
+                        return true;
                     }
                 }
             }
