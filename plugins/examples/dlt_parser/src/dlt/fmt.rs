@@ -11,15 +11,16 @@ use dlt_core::{
     parse::construct_arguments,
     service_id::service_id_lookup,
 };
-use plugins_api::{log::trace, parser::ParsedMessage};
+use plugins_api::log::trace;
 
-use std::{
-    fmt::{self, Formatter, Write},
-    str,
-};
+use std::fmt::{self, Formatter};
 
-const DLT_ARGUMENT_SENTINAL: char = '\u{0005}';
-pub const COLUMN_LEN: usize = 11;
+//TODO AAZ: Remove these and use delimiters from configs.
+
+/// Separator to used between the columns in DLT [`FormattableMessage`].
+pub const DLT_COLUMN_SENTINAL: char = '\u{0004}';
+/// Separator to used between the arguments in the payload of DLT [`FormattableMessage`].
+pub const DLT_ARGUMENT_SENTINAL: char = '\u{0005}';
 
 fn try_new_from_fibex_message_info(message_info: &str) -> Option<MessageType> {
     Some(MessageType::Log(match message_info {
@@ -49,10 +50,15 @@ impl fmt::Display for DltMessageType<'_> {
 //   EColumn.DATETIME,
 //   EColumn.ECUID,
 struct DltStorageHeader<'a>(&'a StorageHeader);
-impl DltStorageHeader<'_> {
-    fn fill_columns(&self, columns: &mut Vec<String>) {
-        columns.push(DltDltTimeStamp(&self.0.timestamp).to_string());
-        columns.push(self.0.ecu_id.clone());
+impl fmt::Display for DltStorageHeader<'_> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "{}{}{}",
+            DltDltTimeStamp(&self.0.timestamp),
+            DLT_COLUMN_SENTINAL,
+            self.0.ecu_id
+        )
     }
 }
 
@@ -128,19 +134,26 @@ impl fmt::Display for DltDltTimeStamp<'_> {
 //   EColumn.DATETIME,
 //   EColumn.ECUID,
 struct DltStandardHeader<'a>(&'a StandardHeader);
-impl DltStandardHeader<'_> {
-    fn fill_columns(&self, columns: &mut Vec<String>) {
-        columns.push(self.0.version.to_string());
-        columns.push(
-            self.0
-                .session_id
-                .map(|id| id.to_string())
-                .unwrap_or_default(),
-        );
 
-        columns.push(self.0.message_counter.to_string());
-        columns.push(self.0.timestamp.map(|s| s.to_string()).unwrap_or_default());
-        columns.push(self.0.ecu_id.clone().unwrap_or_default());
+impl fmt::Display for DltStandardHeader<'_> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{}{}", self.0.version, DLT_COLUMN_SENTINAL)?;
+        if let Some(id) = &self.0.session_id {
+            write!(f, "{id}")?;
+        }
+        write!(
+            f,
+            "{}{}{}",
+            DLT_COLUMN_SENTINAL, self.0.message_counter, DLT_COLUMN_SENTINAL,
+        )?;
+        if let Some(t) = &self.0.timestamp {
+            write!(f, "{t}")?;
+        }
+        write!(f, "{DLT_COLUMN_SENTINAL}",)?;
+        if let Some(id) = &self.0.ecu_id {
+            write!(f, "{id}")?;
+        }
+        Ok(())
     }
 }
 
@@ -179,77 +192,76 @@ impl From<Message> for FormattableMessage<'_> {
 }
 
 impl FormattableMessage<'_> {
-    fn add_app_id_context_id_and_message_type(&self, columns: &mut Vec<String>) {
-        let (app, context, msg_type) = self
-            .message
-            .extended_header
-            .as_ref()
-            .map(|ext| {
-                (
-                    ext.application_id.clone(),
-                    ext.context_id.clone(),
-                    DltMessageType(&ext.message_type).to_string(),
-                )
-            })
-            .unwrap_or_default();
-        columns.push(app);
-        columns.push(context);
-        columns.push(msg_type);
+    fn write_app_id_context_id_and_message_type(
+        &self,
+        f: &mut fmt::Formatter,
+    ) -> Result<(), fmt::Error> {
+        match self.message.extended_header.as_ref() {
+            Some(ext) => {
+                write!(
+                    f,
+                    "{}{}{}{}{}{}",
+                    ext.application_id,
+                    DLT_COLUMN_SENTINAL,
+                    ext.context_id,
+                    DLT_COLUMN_SENTINAL,
+                    DltMessageType(&ext.message_type),
+                    DLT_COLUMN_SENTINAL,
+                )?;
+            }
+            None => {
+                write!(
+                    f,
+                    "-{DLT_COLUMN_SENTINAL}-{DLT_COLUMN_SENTINAL}-{DLT_COLUMN_SENTINAL}",
+                )?;
+            }
+        };
+        Ok(())
     }
-
-    pub(crate) fn add_format_nonverbose_data(
+    pub(crate) fn format_nonverbose_data(
         &self,
         id: u32,
         data: &[u8],
-        columns: &mut Vec<String>,
-    ) {
+        f: &mut fmt::Formatter,
+    ) -> fmt::Result {
         trace!("format_nonverbose_data");
         let mut fibex_info_added = false;
         if let Some(non_verbose_info) = self.info_from_metadata(id, data) {
-            columns.push(non_verbose_info.app_id.unwrap_or("-").to_string());
-            columns.push(non_verbose_info.context_id.unwrap_or("-").to_string());
-            let msg_type = non_verbose_info
-                .msg_type
-                .map(|v| DltMessageType(&v).to_string())
-                .unwrap_or_default();
-            columns.push(msg_type);
-
-            fibex_info_added = !non_verbose_info.arguments.is_empty();
-
-            // // Skip the first memory system calls.
-            // let mut payload = String::with_capacity(8);
-            let mut payload = String::new();
-
-            for arg in non_verbose_info.arguments {
-                // Writing to string never fails.
-                _ = write!(
-                    &mut payload,
-                    "{}{} ",
-                    DLT_ARGUMENT_SENTINAL,
-                    DltArgument(&arg)
-                );
+            write!(
+                f,
+                "{}{}{}{}",
+                non_verbose_info.app_id.unwrap_or("-"),
+                DLT_COLUMN_SENTINAL,
+                non_verbose_info.context_id.unwrap_or("-"),
+                DLT_COLUMN_SENTINAL,
+            )?;
+            if let Some(v) = non_verbose_info.msg_type {
+                write!(f, "{}", DltMessageType(&v))?;
+            } else {
+                write!(f, "-")?;
             }
-            columns.push(payload);
+            write!(f, "{DLT_COLUMN_SENTINAL}")?;
+            fibex_info_added = !non_verbose_info.arguments.is_empty();
+            for arg in non_verbose_info.arguments {
+                write!(f, "{}{} ", DLT_ARGUMENT_SENTINAL, DltArgument(&arg))?;
+            }
         } else {
-            self.add_app_id_context_id_and_message_type(columns);
-            let payload = String::new();
-            columns.push(payload);
+            self.write_app_id_context_id_and_message_type(f)?;
         }
-
         if !fibex_info_added {
-            let payload = columns.last_mut().expect("Payload is already added above");
             let _ =
                 match get_message_type_string(&self.message.extended_header) {
-                    Some(v) => payload.write_str(
+                    Some(v) => f.write_str(
                         &format!("{DLT_ARGUMENT_SENTINAL}[{id}]{DLT_ARGUMENT_SENTINAL} {v}")[..],
                     ),
-                    None => payload.write_str(
+                    None => f.write_str(
                         &format!(
                             "{DLT_ARGUMENT_SENTINAL}[{id}]{DLT_ARGUMENT_SENTINAL} {data:02X?}"
                         )[..],
                     ),
                 };
         }
+        Ok(())
     }
 
     fn info_from_metadata<'b>(&'b self, id: u32, data: &[u8]) -> Option<NonVerboseInfo<'b>> {
@@ -300,82 +312,80 @@ impl FormattableMessage<'_> {
             arguments,
         })
     }
+}
 
-    pub fn to_parse_msg(&self) -> ParsedMessage {
-        let mut columns = Vec::with_capacity(COLUMN_LEN);
-
+impl fmt::Display for FormattableMessage<'_> {
+    /// will format dlt Message with those fields:
+    /// ********* storage-header ********
+    /// date-time
+    /// ecu-id (skip...contained in header section)
+    /// ********* header ********
+    /// Version
+    /// message-counter
+    /// timestamp
+    /// ecu id
+    /// session-id
+    /// ********* ext-header ********
+    /// message-type
+    /// app-id
+    /// context-id
+    ///
+    /// payload
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         if let Some(h) = &self.message.storage_header {
             let tz = self.options.map(|o| o.tz);
             match tz {
                 Some(Some(tz)) => {
-                    columns.push(get_tz_string(&h.timestamp, &tz));
-                    columns.push(h.ecu_id.clone());
+                    write_tz_string(f, &h.timestamp, &tz)?;
+                    write!(f, "{DLT_COLUMN_SENTINAL}{}", h.ecu_id)?;
                 }
-                _ => DltStorageHeader(h).fill_columns(&mut columns),
+                _ => write!(f, "{}", DltStorageHeader(h))?,
             };
-        } else {
-            columns.push(String::new());
-            columns.push(String::new());
         }
-
         let header = DltStandardHeader(&self.message.header);
-        header.fill_columns(&mut columns);
+        write!(f, "{DLT_COLUMN_SENTINAL}",)?;
+        write!(f, "{header}")?;
+        write!(f, "{DLT_COLUMN_SENTINAL}",)?;
 
         match &self.message.payload {
             PayloadContent::Verbose(arguments) => {
-                self.add_app_id_context_id_and_message_type(&mut columns);
-                //TODO AAZ: Select one approach for concatenating string with benchmarks.
-                // Skip the first memory system calls.
-                // let mut payload = String::with_capacity(8);
-                let mut payload = String::new();
-                arguments.iter().for_each(|arg| {
-                    _ = write!(
-                        &mut payload,
-                        "{}{}",
-                        DLT_ARGUMENT_SENTINAL,
-                        DltArgument(arg)
-                    )
-                });
-                columns.push(payload);
+                self.write_app_id_context_id_and_message_type(f)?;
+                arguments
+                    .iter()
+                    .try_for_each(|arg| write!(f, "{}{}", DLT_ARGUMENT_SENTINAL, DltArgument(arg)))
             }
-            PayloadContent::NonVerbose(id, data) => {
-                self.add_format_nonverbose_data(*id, data, &mut columns)
-            }
+            PayloadContent::NonVerbose(id, data) => self.format_nonverbose_data(*id, data, f),
             PayloadContent::ControlMsg(ctrl_id, _data) => {
-                self.add_app_id_context_id_and_message_type(&mut columns);
-                let payload = match service_id_lookup(ctrl_id.value()) {
-                    Some((name, _desc)) => format!("[{name}]"),
-                    None => String::from("[Unknown CtrlCommand]"),
-                };
-                columns.push(payload);
+                self.write_app_id_context_id_and_message_type(f)?;
+                match service_id_lookup(ctrl_id.value()) {
+                    Some((name, _desc)) => write!(f, "[{name}]"),
+                    None => write!(f, "[Unknown CtrlCommand]"),
+                }
             }
             PayloadContent::NetworkTrace(slices) => {
-                self.add_app_id_context_id_and_message_type(&mut columns);
+                self.write_app_id_context_id_and_message_type(f)?;
 
-                // Skip the first memory system calls.
-                // let mut payload = String::with_capacity(8);
-                let mut payload = String::new();
-
-                slices.iter().for_each(|slice| {
-                    _ = write!(payload, "{}{:02X?}", DLT_ARGUMENT_SENTINAL, slice)
-                });
-
-                columns.push(payload);
+                slices
+                    .iter()
+                    .try_for_each(|slice| write!(f, "{}{:02X?}", DLT_ARGUMENT_SENTINAL, slice))
             }
         }
-
-        ParsedMessage::Columns(columns)
     }
 }
 
-fn get_tz_string(time_stamp: &DltTimeStamp, tz: &Tz) -> String {
+fn write_tz_string(
+    f: &mut Formatter,
+    time_stamp: &DltTimeStamp,
+    tz: &Tz,
+) -> Result<(), fmt::Error> {
     let dt: Option<DateTime<Utc>> = DateTime::from_timestamp(
         i64::from(time_stamp.seconds),
         time_stamp.microseconds * 1000,
     );
     match dt {
-        Some(dt) => dt.with_timezone(tz).to_string(),
-        None => format!(
+        Some(dt) => write!(f, "{}", dt.with_timezone(tz)),
+        None => write!(
+            f,
             "no valid timestamp for {}s/{}us",
             time_stamp.seconds, time_stamp.microseconds,
         ),

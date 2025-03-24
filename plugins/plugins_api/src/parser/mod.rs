@@ -28,7 +28,7 @@ pub mod __internal_bindings {
 // External exports for users
 pub use __internal_bindings::chipmunk::parser::parse_types::{
     Attachment, ColumnInfo, ColumnsRenderOptions, ParseError, ParseReturn, ParseYield,
-    ParsedMessage, ParserConfig, RenderOptions,
+    ParserConfig, RenderOptions,
 };
 
 impl RenderOptions {

@@ -77,9 +77,9 @@ impl DltParser {
                 };
                 let consumed = input.len() - rest.len();
                 let parse_yld = if let Some(attachment) = attachment {
-                    ParseYield::MessageAndAttachment((msg.to_parse_msg(), attachment))
+                    ParseYield::MessageAndAttachment((msg.to_string(), attachment))
                 } else {
-                    ParseYield::Message(msg.to_parse_msg())
+                    ParseYield::Message(msg.to_string())
                 };
 
                 let item = ParseReturn::new(consumed as u64, Some(parse_yld));

@@ -36,7 +36,10 @@ impl From<&stypes::PluginParserGeneralSettings> for ParserConfig {
             log::Level::Trace => PlugLevel::Trace,
         };
 
-        Self { log_level: level }
+        Self {
+            log_level: level,
+            msg_delimiter: COLUMN_SEP.into(),
+        }
     }
 }
 
@@ -78,13 +81,8 @@ impl From<ParseError> for p::Error {
     }
 }
 
-impl From<ParsedMessage> for PluginParseMessage {
-    fn from(msg: ParsedMessage) -> Self {
-        let content = match msg {
-            ParsedMessage::Line(msg) => msg,
-            ParsedMessage::Columns(columns) => columns.join(COLUMN_SEP),
-        };
-
+impl From<String> for PluginParseMessage {
+    fn from(content: String) -> Self {
         Self { content }
     }
 }

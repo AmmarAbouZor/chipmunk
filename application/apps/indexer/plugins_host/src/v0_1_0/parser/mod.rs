@@ -85,7 +85,7 @@ impl PluginParser {
         parser
             .plugin_bindings
             .chipmunk_parser_parser()
-            .call_init(&mut parser.store, general_config.into(), &plugin_configs)
+            .call_init(&mut parser.store, &general_config.into(), &plugin_configs)
             .await?
             .map_err(|guest_err| {
                 PluginHostInitError::GuestError(PluginGuestInitError::from(guest_err))

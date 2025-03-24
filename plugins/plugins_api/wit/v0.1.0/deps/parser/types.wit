@@ -7,6 +7,7 @@ interface parse-types {
   /// General configurations related to all parsers
   record parser-config {
     log-level: level,
+    msg-delimiter: string,
   }
 
   /// Return item for parsing call
@@ -17,19 +18,11 @@ interface parse-types {
     consumed: u64,
   }
 
-  /// Represents a parsed message with either a single line or multiple columns.
-  variant parsed-message {
-    /// Single string representing the message.
-    line(string),
-    /// List of strings representing the message split into columns.
-    columns(list<string>),
-  }
-
   /// Represents a parsed item
   variant parse-yield {
-    message(parsed-message),
+    message(string),
     attachment(attachment),
-    message-and-attachment(tuple<parsed-message, attachment>),
+    message-and-attachment(tuple<string, attachment>),
   }
 
   /// Attachment included within parsed item

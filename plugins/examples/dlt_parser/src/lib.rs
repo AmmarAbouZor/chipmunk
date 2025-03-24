@@ -67,9 +67,6 @@ impl Parser for DltParser {
             ColumnInfo::new("PAYLOAD", "Payload", -1),
         ];
 
-        // Ensure generated headers count equals the length of the columns.
-        assert_eq!(cols.len(), dlt::fmt::COLUMN_LEN);
-
         let columns_opts = ColumnsRenderOptions::new(cols, 30, 600);
 
         RenderOptions::new(Some(columns_opts))
