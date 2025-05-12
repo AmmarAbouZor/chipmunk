@@ -213,6 +213,7 @@ impl Grabber {
     ///     * `Ok(())` if the content is copied successfully.
     ///     * `Err(GrabError)` if an error occurs during the copying process.
     ///
+    //TODO AAZ: This is called whiting export as table in the UI.
     pub fn copy_content<W: std::io::Write>(
         &self,
         writer: &mut W,
@@ -237,6 +238,7 @@ impl Grabber {
         self.get_entries(line_range)
     }
 
+    //TODO AAZ: This is not used.
     pub fn inject_metadata(&mut self, metadata: GrabMetadata) -> Result<(), GrabError> {
         self.metadata = Some(metadata);
         Ok(())

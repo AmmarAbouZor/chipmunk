@@ -25,6 +25,8 @@ use tokio::sync::{
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+// TODO AAZ: Needed while investigating for databases.
+#[derive(Debug)]
 pub enum Api {
     SetSessionFile(
         (
@@ -437,6 +439,8 @@ impl SessionStateAPI {
         self.exec_operation(Api::GetSessionFile(tx), rx).await?
     }
 
+    //TODO AAZ: This method should be rewritten to write into the database without combining
+    //the items as strings.
     pub async fn write_session_file(
         &self,
         source_id: u16,

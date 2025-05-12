@@ -125,6 +125,7 @@ impl SessionFile {
         }
     }
 
+    // TODO AAZ: This is used while parsing binary data (file or streams).
     pub fn write(
         &mut self,
         source_id: u16,

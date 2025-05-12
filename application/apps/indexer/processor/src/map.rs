@@ -1,3 +1,5 @@
+//TODO AAZ: This module is helpful for diagrams. It doesn't have the searches in itself.
+//It may be possible to leave as it's with the database solutions.
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, ops::RangeInclusive};
 use thiserror::Error;
@@ -64,6 +66,8 @@ impl SearchMap {
     }
 
     /// Returns scaled search results map. As soon as we are limited with screen/frame size (dataset_len).
+    ///TODO AAZ: Needed in DB.
+    /// This function is most likely to the graph.
     pub fn scaled(&self, dataset_len: u16, range: Option<(u64, u64)>) -> ScaledDistribution {
         let mut map: ScaledDistribution = vec![];
         if self.stream_len == 0 || self.matches.is_empty() {

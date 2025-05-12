@@ -293,6 +293,7 @@ impl SessionState {
         Ok(())
     }
 
+    //TODO AAZ: This is related to text files.
     async fn handle_update_session(
         &mut self,
         source_id: u16,
@@ -373,6 +374,8 @@ impl SessionState {
     ///     - `Ok(false)` if the export was stopped with `cancel`.
     ///     - `Err(stypes::NativeError)` if an error occurs during the export process.
     ///
+    //TODO AAZ: This is used when opening search results in a new session or when exporting
+    //search results.
     async fn handle_export_session(
         &mut self,
         out_path: PathBuf,
@@ -434,6 +437,7 @@ impl SessionState {
         Ok(true)
     }
 
+    // TODO AAZ: Called after search is called with an entry.
     fn handle_get_search_holder(
         &mut self,
         uuid: Uuid,
@@ -462,6 +466,7 @@ impl SessionState {
         }
     }
 
+    // TODO AAZ: Called when exporting search results.
     fn handle_get_search_values_holder(
         &mut self,
         uuid: Uuid,
@@ -494,6 +499,7 @@ impl SessionState {
         }
     }
 
+    // TODO AAZ: Will be called during parsing when attachment is found and needs to be added.
     fn handle_add_attachment(
         &mut self,
         origin: parsers::Attachment,
@@ -516,6 +522,10 @@ pub async fn run(
     let state_cancellation_token = CancellationToken::new();
     debug!("task is started");
     while let Some(msg) = rx_api.recv().await {
+        // TODO AAZ: Needed while experimenting with sessions.
+        // println!("------------------------------------------------------");
+        // dbg!(&msg);
+        // println!("------------------------------------------------------");
         match msg {
             Api::SetSessionFile((session_file, tx_response)) => {
                 let set_session_file_res = state.session_file.init(session_file);

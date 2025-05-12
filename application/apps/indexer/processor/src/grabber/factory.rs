@@ -1,3 +1,4 @@
+//TODO AAZ: This module is not used and can be removed completely.
 use crate::{
     grabber::{ComputationResult, GrabError, GrabMetadata, Grabber},
     text_source::TextFileSource,

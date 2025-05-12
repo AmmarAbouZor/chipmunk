@@ -16,6 +16,8 @@ const BIN_READER_CAPACITY: usize = 1024 * 32;
 const BIN_MIN_BUFFER_SPACE: usize = 10 * 1024;
 
 #[derive(Debug)]
+//TODO AAZ: This will created in each session. It will be called with the parsed file path for
+//binary formats or the original file for text formats.
 pub struct TextFileSource {
     path: PathBuf,
 }
@@ -54,6 +56,7 @@ impl TextFileSource {
     }
 
     /// will return the number of log entries in a file.
+    ///TODO AAZ: This is not used anywhere.
     pub fn count_lines(&self) -> Result<usize, GrabError> {
         let chunk_size = 100 * 1024usize;
         let mut f = fs::File::open(&self.path)
@@ -80,6 +83,7 @@ impl TextFileSource {
     }
 
     /// the size of the input content
+    ///TODO AAZ: This is not used anywhere.
     pub fn input_size(&self) -> Result<u64, GrabError> {
         let input_file_size = std::fs::metadata(self.path())
             .map_err(|e| GrabError::Config(format!("Could not determine size of input file: {e}")))?
@@ -101,6 +105,9 @@ impl TextFileSource {
     ///
     /// #Errors
     /// In case of cancellation will return error GrabError::Interrupted
+    //
+    //TODO AAZ: This is called on all files. I didn't test the streams but it should be called there too.
+    // This should be replaced in database solutions.
     pub fn from_file(
         &mut self,
         base: Option<GrabMetadata>,
@@ -213,7 +220,11 @@ impl TextFileSource {
         ))
     }
 
-    pub fn read_file_segment(
+    //TODO AAZ: This is called on all files too, and should be replaced in database solutions.
+    // This will  deliver the bytes matching the ring from the text file (The temp parsed file
+    // for binary formats or the original file for text formats).
+    // This is one of the method which must be benchmarked.
+    fn read_file_segment(
         &self,
         metadata: &GrabMetadata,
         line_range: &LineRange,
@@ -251,6 +262,7 @@ impl TextFileSource {
     /// Current gen of chipmunk doesn't include support of none UTF-8 coding.
     /// Before sending data to client we should make sure, data will include
     /// only valid UTF8 or/and Unicode.
+    //TODO AAZ: This is called multiple times in all sessions without export.
     pub fn clear_lines(
         &self,
         read_buf: &[u8],
@@ -271,12 +283,16 @@ impl TextFileSource {
     /// Get all lines in a file within the supplied line-range
     /// naive implementation that just reads all slots that are involved and drops
     /// everything that is not needed
+    //TODO AAZ: This is called when we scroll up and down withing logs viewer in UI.
+    //I need the database implementation to replace this function for the scrolling.
     pub fn get_entries(
         &self,
         metadata: &GrabMetadata,
         line_range: &LineRange,
     ) -> Result<Vec<String>, GrabError> {
+        // This will provided the needed bytes from withing the file.
         let (read_buf, file_part) = self.read_file_segment(metadata, line_range)?;
+        // This will parse the bytes into valid string and return them line by line.
         self.clear_lines(&read_buf, &file_part)
     }
 
@@ -301,6 +317,7 @@ impl TextFileSource {
     ///     * `Ok(())` if the content is copied successfully.
     ///     * `Err(GrabError)` if an error occurs during the copying process.
     ///
+    //TODO AAZ: This will be called when we export rows as table.
     pub fn write_to<W: std::io::Write>(
         &self,
         writer: &mut W,

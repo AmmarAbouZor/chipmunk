@@ -136,6 +136,9 @@ async fn run_producer<T: LogMessage, P: Parser<T>, S: ByteSource>(
     let cancel_on_tail = cancel.clone();
     while let Some(next) = select! {
         next_from_stream = async {
+            //TODO AAZ: Writing to the database record by record could affect the performance badly.
+            //I need to save the records in a buffer and write them once they reach enough bytes
+            //inside it.
             match timeout(Duration::from_millis(FLUSH_TIMEOUT_IN_MS as u64), producer.read_next_segment()).await {
                 Ok(items) => {
                     if let Some(items) = items {
