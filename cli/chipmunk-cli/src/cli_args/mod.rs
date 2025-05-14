@@ -67,6 +67,12 @@ pub enum OutputFormat {
     Binary,
     /// Parsed output as text.
     Text,
+    /// Parsed output as an SQLite database.
+    #[value(name = "sqlite")]
+    SQLite,
+    /// Parsed output as DuckDB database.
+    #[value(name = "duckdb")]
+    DuckDB,
 }
 
 impl Display for OutputFormat {
@@ -74,6 +80,8 @@ impl Display for OutputFormat {
         match self {
             OutputFormat::Binary => write!(f, "binary"),
             OutputFormat::Text => write!(f, "text"),
+            OutputFormat::SQLite => write!(f, "sqlite"),
+            OutputFormat::DuckDB => write!(f, "duckdb"),
         }
     }
 }
@@ -209,6 +217,8 @@ impl Cli {
         match output_format {
             OutputFormat::Binary => {}
             OutputFormat::Text => {}
+            OutputFormat::SQLite => {}
+            OutputFormat::DuckDB => {}
         };
 
         Ok(())

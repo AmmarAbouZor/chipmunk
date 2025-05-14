@@ -1,12 +1,19 @@
 //! Structures and methods to write parsed message in text format.
 
-use std::fmt::Write as _;
+use std::{
+    fmt::Write as _,
+    fs::File,
+    io::{BufWriter, Write},
+    path::Path,
+};
 
 use anyhow::Context;
 
 use parsers::LogMessage;
 
-use super::MessageFormatter;
+use crate::session::create_append_file_writer;
+
+use super::MessageWriter;
 
 /// The default separator to used between the columns in the output of this CLI tool.
 pub const OUTPUT_COLUMNS_SEPARATOR_DEFAULT: &str = " , ";
@@ -26,8 +33,8 @@ const WRITE_ERROR_MSG: &str = "Error while writing parsed message to buffer";
 /// to avoid any changes in indexer libraries before the implementation of this tool is
 /// stabilized.
 // TODO: Revisit this part once the UI part of this CLI tool is implemented.
-#[derive(Debug, Clone)]
-pub struct MsgTextFormatter {
+#[derive(Debug)]
+pub struct MsgTextWriter {
     origin_msg_buffer: String,
     replaced_msg_buffer: String,
     /// The separator used for message columns in the parser used in indexer crates originally.
@@ -39,11 +46,14 @@ pub struct MsgTextFormatter {
     columns_separator: String,
     /// The separator to be used for message payload arguments in the output of this session.
     argument_separator: String,
+    /// Buffer writer to the output file.
+    output_file: BufWriter<File>,
 }
 
-impl MsgTextFormatter {
+impl MsgTextWriter {
     /// Creates a new instance with the given arguments.
     ///
+    /// * `output_file`: The path for the output file to write the message to.
     /// * `indexer_cols_sep`: Separator used for message columns in the parser used in indexer
     ///   crates originally.
     /// * `indexer_args_sep`: Separator used for message payload arguments in the parser used
@@ -52,26 +62,31 @@ impl MsgTextFormatter {
     /// * `argument_separator`: Separator to be used for message payload arguments in the output of
     ///   this session.
     pub fn new(
+        output_file: &Path,
         indexer_cols_sep: char,
         indexer_args_sep: char,
         columns_separator: String,
         argument_separator: String,
-    ) -> Self {
-        Self {
+    ) -> anyhow::Result<Self> {
+        let output_file = create_append_file_writer(output_file)?;
+        let writer = Self {
             origin_msg_buffer: String::new(),
             replaced_msg_buffer: String::new(),
             columns_separator,
             argument_separator,
             indexer_cols_sep,
             indexer_args_sep,
-        }
+            output_file,
+        };
+
+        Ok(writer)
     }
 }
 
-impl MessageFormatter for MsgTextFormatter {
+impl MessageWriter for MsgTextWriter {
     /// Format the given message by running the original formatting in chipmunk and then
     /// replace the special separator from chipmunk with the configured ones in the CLI tool.
-    fn write_msg<M>(&mut self, mut writer: impl std::io::Write, msg: &M) -> anyhow::Result<()>
+    fn write_msg<M>(&mut self, msg: &M) -> anyhow::Result<()>
     where
         M: LogMessage,
     {
@@ -107,8 +122,16 @@ impl MessageFormatter for MsgTextFormatter {
             }
         }
 
-        writeln!(writer, "{}", self.replaced_msg_buffer)
+        writeln!(&mut self.output_file, "{}", self.replaced_msg_buffer)
             .context("Error while writing to output file")?;
+
+        Ok(())
+    }
+
+    async fn flush(&mut self) -> anyhow::Result<()> {
+        self.output_file
+            .flush()
+            .context("Error writing data to file.")?;
 
         Ok(())
     }

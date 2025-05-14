@@ -1,16 +1,13 @@
 //! Provides methods for running a session with a server socket as the input source.
 
-use anyhow::Context;
-use std::{io::Write as _, ops::Deref, path::PathBuf, time::Duration};
+use std::{ops::Deref, time::Duration};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use parsers::{LogMessage, Parser};
 use sources::{ByteSource, producer::MessageProducer, socket::tcp::reconnect::ReconnectStateMsg};
 
-use crate::session::create_append_file_writer;
-
-use super::format::MessageFormatter;
+use super::format::MessageWriter;
 
 /// Runs a parsing session considering that the parsing speed is dependent on the
 /// frequency of the incoming messages from the server.
@@ -18,15 +15,14 @@ use super::format::MessageFormatter;
 /// * `parser`: Parser instance to be used for parsing the bytes in the session.
 /// * `bytesource`: Byte source instance to deliver the bytes in the session.
 /// * `output_path`: The path for the output file path.
-/// * `msg_formatter`: The formatter and writer for messages in the session.
+/// * `msg_writer`: The formatter and writer for messages in the session.
 /// * `state_rc`: Receiver for status of reconnecting process in case connection is lost.
 /// * `update_interval`: The interval to print the state to stdout.
 /// * `cancel_token`: CancellationToken.
 pub async fn run_session<T, P, D, W>(
     parser: P,
     bytesource: D,
-    output_path: PathBuf,
-    mut msg_formatter: W,
+    mut msg_writer: W,
     mut state_rc: watch::Receiver<ReconnectStateMsg>,
     update_interval: Duration,
     cancel_token: CancellationToken,
@@ -35,13 +31,11 @@ where
     T: LogMessage,
     P: Parser<T>,
     D: ByteSource,
-    W: MessageFormatter,
+    W: MessageWriter,
 {
     let mut producer = MessageProducer::new(parser, bytesource);
 
     let mut update_interval = tokio::time::interval(update_interval);
-
-    let mut file_writer = create_append_file_writer(&output_path)?;
 
     // Flush the file writer every 500 milliseconds for users tailing the output
     // file when messages are receive in relative slow frequency.
@@ -60,7 +54,7 @@ where
     loop {
         tokio::select! {
             _ = cancel_token.cancelled() => {
-                file_writer.flush().context("Error writing data to file.")?;
+                msg_writer.flush().await?;
                 super::write_summary(msg_count, skipped_count, empty_count, incomplete_count);
 
                 return Ok(());
@@ -92,7 +86,7 @@ where
             _ = flush_interval.tick() => {
                 if msg_since_last_flush > 0 {
                     msg_since_last_flush = 0;
-                    file_writer.flush().context("Error while writing to output file")?;
+                    msg_writer.flush().await?;
                 }
             }
             _ = update_interval.tick() => {
@@ -112,7 +106,7 @@ where
                                 }
                                 parsers::ParseYield::MessageAndAttachment((msg, _attachment)) => msg,
                             };
-                            msg_formatter.write_msg(&mut file_writer, msg)?;
+                            msg_writer.write_msg(msg)?;
                             msg_since_last_flush += 1;
 
                             msg_count += 1;
