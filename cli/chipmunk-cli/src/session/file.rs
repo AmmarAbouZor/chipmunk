@@ -1,15 +1,11 @@
 //! Provides methods for running a session with a file as the input source.
 
-use anyhow::Context;
-use std::{io::Write as _, path::PathBuf};
 use tokio_util::sync::CancellationToken;
 
 use parsers::{LogMessage, Parser};
 use sources::{ByteSource, producer::MessageProducer};
 
-use crate::session::create_append_file_writer;
-
-use super::format::MessageFormatter;
+use super::format::MessageWriter;
 
 /// Message interval to print output status to stdout while parsing.
 const UPDATE_MESSAGE_INTERVAL: usize = 5000;
@@ -20,24 +16,21 @@ const UPDATE_MESSAGE_INTERVAL: usize = 5000;
 /// * `parser`: Parser instance to be used for parsing the bytes in the session.
 /// * `bytesource`: Byte source instance to deliver the bytes in the session.
 /// * `output_path`: The path for the output file path.
-/// * `msg_formatter`: The formatter and writer for messages in the session.
+/// * `msg_writer`: The formatter and writer for messages in the session.
 /// * `cancel_token`: CancellationToken.
 pub async fn run_session<T, P, D, W>(
     parser: P,
     bytesource: D,
-    output_path: PathBuf,
-    mut msg_formatter: W,
+    mut msg_writer: W,
     cancel_token: CancellationToken,
 ) -> anyhow::Result<()>
 where
     T: LogMessage,
     P: Parser<T>,
     D: ByteSource,
-    W: MessageFormatter,
+    W: MessageWriter,
 {
     let mut producer = MessageProducer::new(parser, bytesource);
-
-    let mut file_writer = create_append_file_writer(&output_path)?;
 
     let mut msg_count = 0;
     let mut skipped_count = 0;
@@ -47,7 +40,7 @@ where
     loop {
         tokio::select! {
             _ = cancel_token.cancelled() => {
-                file_writer.flush().context("Error writing data to file.")?;
+                msg_writer.flush().await?;
                 super::write_summary(msg_count, skipped_count, empty_count, incomplete_count);
 
                 return Ok(());
@@ -64,7 +57,7 @@ where
                                 }
                                 parsers::ParseYield::MessageAndAttachment((msg, _attachment)) => msg,
                             };
-                            msg_formatter.write_msg(&mut file_writer, msg)?;
+                            msg_writer.write_msg(msg)?;
 
                             msg_count += 1;
                             if msg_count % UPDATE_MESSAGE_INTERVAL == 0 {

@@ -3,7 +3,10 @@ use cli_args::OutputFormat;
 use tokio_util::sync::CancellationToken;
 
 use session::{
-    format::{binary::MsgBinaryFormatter, text::MsgTextFormatter},
+    format::{
+        binary::MsgBinaryWriter, duckdb::MsgDuckDbWriter, sqlite::MsgSqliteWriter,
+        text::MsgTextWriter,
+    },
     start_session,
 };
 
@@ -37,28 +40,33 @@ pub async fn run_app(cancel_token: CancellationToken) -> anyhow::Result<()> {
             // Move to next part initializing the input source and starting the session.
             match cli.output_format {
                 OutputFormat::Binary => {
-                    let binary_formatter = MsgBinaryFormatter::default();
+                    let binary_writer = MsgBinaryWriter::new(&cli.output_path)?;
 
-                    start_session(
-                        parser,
-                        input,
-                        binary_formatter,
-                        cli.output_path,
-                        cancel_token,
-                    )
-                    .await?;
+                    start_session(parser, input, binary_writer, cancel_token).await?;
                 }
                 OutputFormat::Text => {
                     use parsers::dlt::fmt;
-                    let text_formatter = MsgTextFormatter::new(
+                    let text_writer = MsgTextWriter::new(
+                        &cli.output_path,
                         fmt::DLT_COLUMN_SENTINAL,
                         fmt::DLT_ARGUMENT_SENTINAL,
                         cli.text_columns_separator,
                         cli.text_args_separator,
-                    );
+                    )?;
 
-                    start_session(parser, input, text_formatter, cli.output_path, cancel_token)
-                        .await?;
+                    start_session(parser, input, text_writer, cancel_token).await?;
+                }
+                OutputFormat::SQLite => {
+                    let parser_info = session::parser::dlt::get_parser_info();
+                    let sqlit_writer = MsgSqliteWriter::new(&cli.output_path, parser_info).await?;
+
+                    start_session(parser, input, sqlit_writer, cancel_token).await?;
+                }
+                OutputFormat::DuckDB => {
+                    let parser_info = session::parser::dlt::get_parser_info();
+                    let duckdb_writer = MsgDuckDbWriter::new(&cli.output_path, parser_info)?;
+
+                    start_session(parser, input, duckdb_writer, cancel_token).await?;
                 }
             };
         }

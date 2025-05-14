@@ -4,6 +4,8 @@ use std::path::PathBuf;
 
 use parsers::dlt::{FibexConfig, FibexDltMetadata};
 
+use super::{ColumnInfo, ParserInfo};
+
 /// Creates [`FibexDltMetadata`] instance from the provided paths for fibex files if any and if
 /// they are valid.
 // TODO: Change function signature to return error once `gather_fibex_data()` is `dlt-core` is
@@ -15,4 +17,23 @@ pub fn create_fibex_metadata(fibex_files: Vec<PathBuf>) -> Option<FibexDltMetada
         .collect();
 
     parsers::dlt::gather_fibex_data(FibexConfig { fibex_file_paths })
+}
+
+/// Provides DLT parser infos
+pub fn get_parser_info() -> ParserInfo {
+    let columns = vec![
+        ColumnInfo::new("Datetime"),
+        ColumnInfo::new("ECUID"),
+        ColumnInfo::new("VERS"),
+        ColumnInfo::new("SID"),
+        ColumnInfo::new("MCNT"),
+        ColumnInfo::new("TMS"),
+        ColumnInfo::new("EID"),
+        ColumnInfo::new("APID"),
+        ColumnInfo::new("CTID"),
+        ColumnInfo::new("MSTP"),
+        ColumnInfo::new("PAYLOAD"),
+    ];
+
+    ParserInfo::new(columns)
 }
