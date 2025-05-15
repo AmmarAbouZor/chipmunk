@@ -37,6 +37,7 @@ pub async fn run_app(cancel_token: CancellationToken) -> anyhow::Result<()> {
                 with_storage_header,
             );
 
+            use parsers::dlt::fmt;
             // Move to next part initializing the input source and starting the session.
             match cli.output_format {
                 OutputFormat::Binary => {
@@ -45,7 +46,6 @@ pub async fn run_app(cancel_token: CancellationToken) -> anyhow::Result<()> {
                     start_session(parser, input, binary_writer, cancel_token).await?;
                 }
                 OutputFormat::Text => {
-                    use parsers::dlt::fmt;
                     let text_writer = MsgTextWriter::new(
                         &cli.output_path,
                         fmt::DLT_COLUMN_SENTINAL,
@@ -58,13 +58,22 @@ pub async fn run_app(cancel_token: CancellationToken) -> anyhow::Result<()> {
                 }
                 OutputFormat::SQLite => {
                     let parser_info = session::parser::dlt::get_parser_info();
-                    let sqlit_writer = MsgSqliteWriter::new(&cli.output_path, parser_info).await?;
+                    let sqlit_writer = MsgSqliteWriter::new(
+                        &cli.output_path,
+                        parser_info,
+                        fmt::DLT_COLUMN_SENTINAL,
+                    )
+                    .await?;
 
                     start_session(parser, input, sqlit_writer, cancel_token).await?;
                 }
                 OutputFormat::DuckDB => {
                     let parser_info = session::parser::dlt::get_parser_info();
-                    let duckdb_writer = MsgDuckDbWriter::new(&cli.output_path, parser_info)?;
+                    let duckdb_writer = MsgDuckDbWriter::new(
+                        &cli.output_path,
+                        parser_info,
+                        fmt::DLT_COLUMN_SENTINAL,
+                    )?;
 
                     start_session(parser, input, duckdb_writer, cancel_token).await?;
                 }
