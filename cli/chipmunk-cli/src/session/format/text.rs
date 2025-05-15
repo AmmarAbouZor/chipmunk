@@ -35,7 +35,11 @@ const WRITE_ERROR_MSG: &str = "Error while writing parsed message to buffer";
 // TODO: Revisit this part once the UI part of this CLI tool is implemented.
 #[derive(Debug)]
 pub struct MsgTextWriter {
+    /// Parse the message text with its delimiters into this buffer to avoid
+    /// allocating memory on each message.
     origin_msg_buffer: String,
+    /// Save the message with the configured delimiters into this buffer to
+    /// avoid allocating memory for each message.
     replaced_msg_buffer: String,
     /// The separator used for message columns in the parser used in indexer crates originally.
     indexer_cols_sep: char,

@@ -37,6 +37,8 @@ where
     let mut empty_count = 0;
     let mut incomplete_count = 0;
 
+    let start = std::time::Instant::now();
+
     loop {
         tokio::select! {
             _ = cancel_token.cancelled() => {
@@ -68,7 +70,8 @@ where
                         parsers::MessageStreamItem::Incomplete => incomplete_count += 1,
                         parsers::MessageStreamItem::Empty => empty_count += 1,
                         parsers::MessageStreamItem::Done => {
-                            println!("Parsing Done");
+                            let elapsed = start.elapsed();
+                            println!("Parsing Done in {} milliseconds", elapsed.as_millis());
                             super::write_summary(msg_count, skipped_count, empty_count, incomplete_count);
 
                             return Ok(());
