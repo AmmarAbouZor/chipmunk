@@ -69,7 +69,11 @@ pub async fn run_app(cancel_token: CancellationToken) -> anyhow::Result<()> {
                 }
                 OutputFormat::DuckDB => {
                     let parser_info = session::parser::dlt::get_parser_info();
-                    let duckdb_writer = MsgDuckDbWriter::new(&cli.output_path, parser_info)?;
+                    let duckdb_writer = MsgDuckDbWriter::new(
+                        &cli.output_path,
+                        parser_info,
+                        fmt::DLT_COLUMN_SENTINAL,
+                    )?;
 
                     start_session(parser, input, duckdb_writer, cancel_token).await?;
                 }
