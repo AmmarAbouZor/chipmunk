@@ -93,19 +93,17 @@ impl MsgDuckDbWriter {
             .appender(MESSAGES_TABLE_NAME)
             .context("Error while creating appender")?;
 
+        let cols_len = self.parser_info.columns.len() + 1;
+
         let iter = (0..self.cache_next_idx).map(|idx| {
-            let mut msg_cols = Vec::with_capacity(self.parser_info.columns.len() + 1);
+            // Fix broken messages by adding missing or ignoring additional columns.
+            let msg_cols = self.messages_cache[idx]
+                .as_ref()
+                .expect("All messages below cache_next_idx must be initialized")
+                .split(self.indexer_cols_sep)
+                .chain(std::iter::repeat(""))
+                .take(cols_len);
 
-            msg_cols.extend(
-                self.messages_cache[idx]
-                    .as_ref()
-                    .expect("All messages below cache_next_idx must be initialized")
-                    .split(self.indexer_cols_sep),
-            );
-
-            while msg_cols.len() < self.parser_info.columns.len() + 1 {
-                msg_cols.push("");
-            }
             appender_params_from_iter(msg_cols)
         });
 

@@ -81,24 +81,18 @@ impl MsgSqliteWriter {
 
         let mut stm = tx.prepare_cached(&self.sql_queries.insert_msg)?;
 
-        let mut msg_cols = Vec::with_capacity(self.parser_info.columns.len());
+        let cols_len = self.parser_info.columns.len();
 
         for idx in 0..self.cache_next_idx {
-            msg_cols.clear();
+            // Fix broken messages by adding missing or ignoring additional columns.
+            let msg_cols = self.messages_cache[idx]
+                .as_ref()
+                .expect("All messages below cache_next_idx must be initialized")
+                .split(self.indexer_cols_sep)
+                .chain(std::iter::repeat(""))
+                .take(cols_len);
 
-            msg_cols.extend(
-                self.messages_cache[idx]
-                    .as_ref()
-                    .expect("All messages below cache_next_idx must be initialized")
-                    .split(self.indexer_cols_sep),
-            );
-
-            // NOTE: Temp solution for messages with an empty last column (Empty payload)
-            while msg_cols.len() < self.parser_info.columns.len() {
-                msg_cols.push("");
-            }
-
-            stm.execute(params_from_iter(msg_cols.iter()))?;
+            stm.execute(params_from_iter(msg_cols))?;
         }
 
         drop(stm);
