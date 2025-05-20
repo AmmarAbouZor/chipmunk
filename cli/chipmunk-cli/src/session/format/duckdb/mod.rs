@@ -28,7 +28,7 @@ pub struct MsgDuckDbWriter {
     sql_queries: SqlQueries,
     /// A vector of buffers to cache the formatted messages before inserting them into the database
     /// in bulks.
-    messages_cache: Vec<String>,
+    messages_cache: Vec<Option<String>>,
     /// The next index to use in messages cache.
     cache_next_idx: usize,
     /// The current row index in the database
@@ -69,7 +69,7 @@ impl MsgDuckDbWriter {
 
         //NOTE: We may consider avoiding allocating the whole strings without having to use them.
         //One option is to have the cache as Vec<Option<String>>
-        let messages_cache = vec![String::new(); MESSAGES_CACHE_LEN];
+        let messages_cache = vec![None; MESSAGES_CACHE_LEN];
 
         Ok(Self {
             connection,
@@ -96,7 +96,12 @@ impl MsgDuckDbWriter {
         let iter = (0..self.cache_next_idx).map(|idx| {
             let mut msg_cols = Vec::with_capacity(self.parser_info.columns.len() + 1);
 
-            msg_cols.extend(self.messages_cache[idx].split(self.indexer_cols_sep));
+            msg_cols.extend(
+                self.messages_cache[idx]
+                    .as_ref()
+                    .expect("All messages below cache_next_idx must be initialized")
+                    .split(self.indexer_cols_sep),
+            );
 
             while msg_cols.len() < self.parser_info.columns.len() + 1 {
                 msg_cols.push("");
@@ -120,7 +125,8 @@ impl MessageWriter for MsgDuckDbWriter {
     where
         M: parsers::LogMessage,
     {
-        let msg_slot = &mut self.messages_cache[self.cache_next_idx];
+        let msg_slot =
+            &mut self.messages_cache[self.cache_next_idx].get_or_insert_with(String::new);
 
         msg_slot.clear();
 
