@@ -55,6 +55,10 @@ impl MsgSqliteWriter {
                 .execute(&sql_queries.create_msg_table, [])
                 .context("Error while defining tables in created database")?;
         };
+        // TODO AAZ: Check journal mode.
+        connection
+            .pragma_update(None, "journal_mode", "OFF")
+            .context("Disabling journal mode failed")?;
 
         //NOTE: We may consider avoiding allocating the whole strings without having to use them.
         //One option is to have the cache as Vec<Option<String>>
@@ -75,9 +79,10 @@ impl MsgSqliteWriter {
     fn write_to_db(&mut self) -> anyhow::Result<()> {
         assert!(self.cache_next_idx <= self.messages_cache.len());
 
+        //TODO AAZ: Check which behavior is most suitable.
         let tx = self
             .connection
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Exclusive)?;
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
 
         let mut stm = tx.prepare_cached(&self.sql_queries.insert_msg)?;
 
