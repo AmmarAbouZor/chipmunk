@@ -2,7 +2,7 @@ use std::path::Path;
 
 use anyhow::Context;
 use itertools::Itertools;
-use rusqlite::Connection;
+use rusqlite::{Connection, OpenFlags};
 
 use crate::paging::Paging;
 
@@ -13,7 +13,13 @@ pub struct SqliteDb {
 
 impl SqliteDb {
     pub fn create(db_path: &Path) -> anyhow::Result<Self> {
-        let connection = Connection::open(db_path).context("Error while connecting to database")?;
+        let connection = Connection::open_with_flags(
+            db_path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY
+                | OpenFlags::SQLITE_OPEN_NO_MUTEX
+                | OpenFlags::SQLITE_OPEN_URI,
+        )
+        .context("Error while connecting to database")?;
 
         let db = Self { connection };
 
