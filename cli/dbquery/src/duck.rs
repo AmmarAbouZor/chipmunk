@@ -1,17 +1,17 @@
 use std::path::Path;
 
 use anyhow::Context;
+use duckdb::Connection;
 use itertools::Itertools;
-use rusqlite::Connection;
 
 use crate::paging::Paging;
 
 #[derive(Debug)]
-pub struct SqliteDb {
+pub struct DuckDb {
     connection: Connection,
 }
 
-impl SqliteDb {
+impl DuckDb {
     pub fn create(db_path: &Path) -> anyhow::Result<Self> {
         let connection = Connection::open(db_path).context("Error while connecting to database")?;
 
@@ -21,7 +21,7 @@ impl SqliteDb {
     }
 }
 
-impl Paging for SqliteDb {
+impl Paging for DuckDb {
     fn records_count(&mut self) -> usize {
         self.connection
             .query_row("SELECT MAX(id) FROM messages", [], |row| row.get(0))
@@ -29,6 +29,13 @@ impl Paging for SqliteDb {
     }
 
     fn load_records(&mut self, start: usize, end: usize) -> Vec<String> {
+        // let limit = end - start;
+        // let mut stmt = self
+        //     .connection
+        //     .prepare_cached("SELECT * from messages LIMIT ?1 OFFSET ?2")
+        //     .unwrap();
+        // let mut rows = stmt.query([limit, start]).unwrap();
+
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * from messages WHERE id >= ?1 AND id <= ?2")

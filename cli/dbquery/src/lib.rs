@@ -1,10 +1,12 @@
 use anyhow::ensure;
 use clap::Parser;
 use cli::Cli;
+use duck::DuckDb;
 use paging::Direction;
 use sqlite::SqliteDb;
 
 mod cli;
+mod duck;
 mod paging;
 mod sqlite;
 
@@ -18,7 +20,10 @@ pub fn run_app() -> anyhow::Result<()> {
             let db = SqliteDb::create(&cli.input).unwrap();
             paging::run_benches(db, Direction::Backwards);
         }
-        cli::Database::DuckDb => todo!("Duckdb isn't implemented yet"),
+        cli::Database::DuckDb => {
+            let db = DuckDb::create(&cli.input).unwrap();
+            paging::run_benches(db, Direction::Backwards);
+        }
     };
 
     Ok(())
