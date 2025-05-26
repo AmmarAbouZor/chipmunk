@@ -1,27 +1,18 @@
-use std::{fmt::Write, path::Path};
+use std::path::Path;
 
+use super::queries::{SqlQueries, MESSAGES_TABLE_NAME};
 use crate::session::parser::ParserInfo;
 use anyhow::Context;
-use duckdb::{appender_params_from_iter, Connection};
-use queries::{SqlQueries, MESSAGES_TABLE_NAME};
-
-mod queries;
-
-mod unsafe_writer;
-
-pub use unsafe_writer::MsgDuckDbWriter as UnsafeMsgDuckDbWriter;
-
-/// The length of messages buffer used to cache the messages after formatting them before
-/// inserting them in the database as chunks.
-const MESSAGES_CACHE_LEN: usize = 15000;
+use duckdb::{appender_params_from_iter, Appender, Connection};
 
 use super::MessageWriter;
 
 /// Structure to write parsed message in into DuckDB database file.
 #[derive(Debug)]
 pub struct MsgDuckDbWriter {
+    // We need to keep connection alive because appender has reference to it.
     /// Database connection.
-    connection: Connection,
+    _connection: Connection,
     /// Information of the parser used to parse the messages.
     parser_info: ParserInfo,
     /// The separator used for message columns in the parser used in indexer crates originally.
@@ -30,15 +21,15 @@ pub struct MsgDuckDbWriter {
     //TODO AAZ: Remove if not used.
     #[allow(unused)]
     sql_queries: SqlQueries,
-    /// A vector of buffers to cache the formatted messages before inserting them into the database
-    /// in bulks.
-    messages_cache: Vec<Option<String>>,
-    /// The next index to use in messages cache.
-    cache_next_idx: usize,
     /// The current row index in the database
     /// NOTE: Append in DuckDB still doesn't support auto increment and we must handle it
     /// manually
     row_idx: usize,
+    /// Parse the message text with its delimiters into this buffer to avoid
+    /// allocating memory on each message.
+    msg_buffer: String,
+    /// Appender to manage adding items to database in bulks.
+    app: Appender<'static>,
     //TODO AAZ: For now I'm ignoring the separator for arguments inside payload.
 }
 
@@ -71,52 +62,32 @@ impl MsgDuckDbWriter {
             0
         };
 
-        //NOTE: We may consider avoiding allocating the whole strings without having to use them.
-        //One option is to have the cache as Vec<Option<String>>
-        let messages_cache = vec![None; MESSAGES_CACHE_LEN];
+        let app = connection
+            .appender(MESSAGES_TABLE_NAME)
+            .context("Error while creating appender")?;
+
+        // SAFETY: Both Connection and Appender are fields on the same structs, so they will live
+        // and get destroyed together.
+        // This is a workaround to solve self-referencing fields in rust.
+        let app = unsafe { std::mem::transmute::<Appender<'_>, Appender<'static>>(app) };
 
         Ok(Self {
-            connection,
+            _connection: connection,
+            msg_buffer: String::new(),
             parser_info,
             sql_queries,
             indexer_cols_sep,
-            messages_cache,
-            cache_next_idx: 0,
             row_idx,
+            app,
         })
     }
 
     /// Writes the messages in the cache to the database by using an appender
     /// to write them in bulks at once.
     fn write_to_db(&mut self) -> anyhow::Result<()> {
-        assert!(self.cache_next_idx <= self.messages_cache.len());
-
-        // let tx = self.connection.transaction()?;
-        let mut app = self
-            .connection
-            .appender(MESSAGES_TABLE_NAME)
-            .context("Error while creating appender")?;
-
-        let cols_len = self.parser_info.columns.len() + 1;
-
-        let iter = (0..self.cache_next_idx).map(|idx| {
-            // Fix broken messages by adding missing or ignoring additional columns.
-            let msg_cols = self.messages_cache[idx]
-                .as_ref()
-                .expect("All messages below cache_next_idx must be initialized")
-                .split(self.indexer_cols_sep)
-                .chain(std::iter::repeat(""))
-                .take(cols_len);
-
-            appender_params_from_iter(msg_cols)
-        });
-
-        app.append_rows(iter)?;
-
-        app.flush()
+        self.app
+            .flush()
             .context("Error while writing records to database via appender")?;
-
-        self.cache_next_idx = 0;
 
         Ok(())
     }
@@ -127,40 +98,42 @@ impl MessageWriter for MsgDuckDbWriter {
     where
         M: parsers::LogMessage,
     {
-        let msg_slot =
-            &mut self.messages_cache[self.cache_next_idx].get_or_insert_with(String::new);
-
-        msg_slot.clear();
+        use std::fmt::Write;
+        self.msg_buffer.clear();
 
         // HACK: Add the index to the message with the same columns separator so it
         // will be included when inserted to the database.
-        let _ = write!(msg_slot, "{}{}{msg}", self.row_idx, self.indexer_cols_sep);
+        let _ = write!(
+            &mut self.msg_buffer,
+            "{}{}{msg}",
+            self.row_idx, self.indexer_cols_sep
+        );
+
+        let cols_len = self.parser_info.columns.len() + 1;
+
+        let msg_cols = self
+            .msg_buffer
+            .split(self.indexer_cols_sep)
+            .chain(std::iter::repeat(""))
+            .take(cols_len);
+
+        self.app.append_row(appender_params_from_iter(msg_cols))?;
 
         self.row_idx += 1;
-        self.cache_next_idx += 1;
 
-        if self.cache_next_idx < self.messages_cache.len() {
-            Ok(())
-        } else {
-            self.write_to_db()
-        }
+        Ok(())
     }
 
     async fn flush(&mut self) -> anyhow::Result<()> {
-        if self.cache_next_idx > 0 {
-            self.write_to_db()?;
-        }
-        Ok(())
+        self.write_to_db()
     }
 }
 
 impl Drop for MsgDuckDbWriter {
     fn drop(&mut self) {
-        if self.cache_next_idx > 0 {
-            if let Err(err) = self.write_to_db() {
-                //TODO: Error should be logged and not printed to stderr.
-                eprintln!("Error while writing messages to database. {err}");
-            }
+        if let Err(err) = self.write_to_db() {
+            //TODO: Error should be logged and not printed to stderr.
+            eprintln!("Error while writing messages to database. {err}");
         }
     }
 }
