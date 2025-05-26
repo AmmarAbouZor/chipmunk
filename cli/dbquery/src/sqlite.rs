@@ -35,6 +35,9 @@ impl Paging for SqliteDb {
     }
 
     fn load_records(&mut self, start: usize, end: usize) -> Vec<String> {
+        //NOTE: Using `rowid` instead of generating `id` column wouldn't provide
+        //any extra value because sqlite will shadow rowid in case we have another
+        //column with `INTEGER PRIMARY KEY`.
         let mut stmt = self
             .connection
             .prepare_cached("SELECT * from messages WHERE id >= ?1 AND id <= ?2")

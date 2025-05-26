@@ -35,10 +35,6 @@ pub struct MsgDuckDbWriter {
     messages_cache: Vec<Option<String>>,
     /// The next index to use in messages cache.
     cache_next_idx: usize,
-    /// The current row index in the database
-    /// NOTE: Append in DuckDB still doesn't support auto increment and we must handle it
-    /// manually
-    row_idx: usize,
     //TODO AAZ: For now I'm ignoring the separator for arguments inside payload.
 }
 
@@ -58,17 +54,12 @@ impl MsgDuckDbWriter {
         let connection =
             Connection::open(output_file).context("Error while connecting to database")?;
         let sql_queries = SqlQueries::new(&parser_info);
-        let row_idx = if db_exists {
-            let last_idx = connection
-                .query_row(&sql_queries.last_msg_idx, [], |row| row.get::<_, usize>(0))
-                .context("Error while retrieving the last index form messages database.")?;
-            last_idx + 1
+        if db_exists {
             //TODO: More validation in the final solution.
         } else {
             connection
                 .execute(&sql_queries.create_msg_table, [])
                 .context("Error while defining tables in created database")?;
-            0
         };
 
         //NOTE: We may consider avoiding allocating the whole strings without having to use them.
@@ -82,7 +73,6 @@ impl MsgDuckDbWriter {
             indexer_cols_sep,
             messages_cache,
             cache_next_idx: 0,
-            row_idx,
         })
     }
 
@@ -97,7 +87,7 @@ impl MsgDuckDbWriter {
             .appender(MESSAGES_TABLE_NAME)
             .context("Error while creating appender")?;
 
-        let cols_len = self.parser_info.columns.len() + 1;
+        let cols_len = self.parser_info.columns.len();
 
         let iter = (0..self.cache_next_idx).map(|idx| {
             // Fix broken messages by adding missing or ignoring additional columns.
@@ -132,11 +122,8 @@ impl MessageWriter for MsgDuckDbWriter {
 
         msg_slot.clear();
 
-        // HACK: Add the index to the message with the same columns separator so it
-        // will be included when inserted to the database.
-        let _ = write!(msg_slot, "{}{}{msg}", self.row_idx, self.indexer_cols_sep);
+        let _ = write!(msg_slot, "{msg}");
 
-        self.row_idx += 1;
         self.cache_next_idx += 1;
 
         if self.cache_next_idx < self.messages_cache.len() {

@@ -24,7 +24,7 @@ impl DuckDb {
 impl Paging for DuckDb {
     fn records_count(&mut self) -> usize {
         self.connection
-            .query_row("SELECT MAX(id) FROM messages", [], |row| row.get(0))
+            .query_row("SELECT MAX(rowid) FROM messages", [], |row| row.get(0))
             .unwrap()
     }
 
@@ -38,7 +38,7 @@ impl Paging for DuckDb {
 
         let mut stmt = self
             .connection
-            .prepare_cached("SELECT * from messages WHERE id >= ?1 AND id <= ?2")
+            .prepare_cached("SELECT * from messages WHERE rowid >= ?1 AND rowid <= ?2")
             .unwrap();
 
         let mut rows = stmt.query([start, end]).unwrap();
@@ -47,7 +47,7 @@ impl Paging for DuckDb {
 
         while let Some(row) = rows.next().unwrap() {
             let msg: String = Itertools::intersperse(
-                (1..=11).map(|col| row.get_ref(col).unwrap().as_str().unwrap()),
+                (0..=10).map(|col| row.get_ref(col).unwrap().as_str().unwrap()),
                 ";",
             )
             .collect();

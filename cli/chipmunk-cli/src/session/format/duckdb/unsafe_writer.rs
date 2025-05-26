@@ -21,10 +21,6 @@ pub struct MsgDuckDbWriter {
     //TODO AAZ: Remove if not used.
     #[allow(unused)]
     sql_queries: SqlQueries,
-    /// The current row index in the database
-    /// NOTE: Append in DuckDB still doesn't support auto increment and we must handle it
-    /// manually
-    row_idx: usize,
     /// Parse the message text with its delimiters into this buffer to avoid
     /// allocating memory on each message.
     msg_buffer: String,
@@ -49,18 +45,14 @@ impl MsgDuckDbWriter {
         let connection =
             Connection::open(output_file).context("Error while connecting to database")?;
         let sql_queries = SqlQueries::new(&parser_info);
-        let row_idx = if db_exists {
-            let last_idx = connection
-                .query_row(&sql_queries.last_msg_idx, [], |row| row.get::<_, usize>(0))
-                .context("Error while retrieving the last index form messages database.")?;
-            last_idx + 1
+
+        if db_exists {
             //TODO: More validation in the final solution.
         } else {
             connection
                 .execute(&sql_queries.create_msg_table, [])
                 .context("Error while defining tables in created database")?;
-            0
-        };
+        }
 
         let app = connection
             .appender(MESSAGES_TABLE_NAME)
@@ -77,7 +69,6 @@ impl MsgDuckDbWriter {
             parser_info,
             sql_queries,
             indexer_cols_sep,
-            row_idx,
             app,
         })
     }
@@ -101,15 +92,9 @@ impl MessageWriter for MsgDuckDbWriter {
         use std::fmt::Write;
         self.msg_buffer.clear();
 
-        // HACK: Add the index to the message with the same columns separator so it
-        // will be included when inserted to the database.
-        let _ = write!(
-            &mut self.msg_buffer,
-            "{}{}{msg}",
-            self.row_idx, self.indexer_cols_sep
-        );
+        let _ = write!(&mut self.msg_buffer, "{msg}",);
 
-        let cols_len = self.parser_info.columns.len() + 1;
+        let cols_len = self.parser_info.columns.len();
 
         let msg_cols = self
             .msg_buffer
@@ -118,8 +103,6 @@ impl MessageWriter for MsgDuckDbWriter {
             .take(cols_len);
 
         self.app.append_row(appender_params_from_iter(msg_cols))?;
-
-        self.row_idx += 1;
 
         Ok(())
     }
