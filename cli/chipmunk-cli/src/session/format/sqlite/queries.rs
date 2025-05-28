@@ -49,6 +49,8 @@ impl SqlQueries {
         });
 
         query.push(')');
+        // TODO AAZ: Consider using strict.
+        // query.push_str(") STRICT");
 
         query
     }
