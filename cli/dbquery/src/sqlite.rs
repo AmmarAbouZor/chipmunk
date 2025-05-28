@@ -4,7 +4,10 @@ use anyhow::Context;
 use itertools::Itertools;
 use rusqlite::{Connection, OpenFlags};
 
-use crate::paging::Paging;
+use crate::{
+    paging::Paging,
+    search::{Case, Search, SearchType},
+};
 
 #[derive(Debug)]
 pub struct SqliteDb {
@@ -56,5 +59,54 @@ impl Paging for SqliteDb {
             res.push(msg);
         }
         res
+    }
+}
+
+impl Search for SqliteDb {
+    fn search(&mut self, mut pattern: String, typ: SearchType, case: Case) -> Vec<usize> {
+        let query = match (typ, case) {
+            (SearchType::Like, Case::Sensitive) => {
+                pattern = format!("*{pattern}*");
+                "SELECT id FROM messages \
+                    WHERE Datetime GLOB ?1 \
+                    OR ECUID GLOB ?1 \
+                    OR VERS GLOB ?1 \
+                    OR SID GLOB ?1 \
+                    OR MCNT GLOB ?1 \
+                    OR TMS GLOB ?1 \
+                    OR EID GLOB ?1 \
+                    OR APID GLOB ?1 \
+                    OR CTID GLOB ?1 \
+                    OR MSTP GLOB ?1 \
+                    OR PAYLOAD GLOB ?1"
+            }
+            (SearchType::Like, Case::Insensitive) => {
+                pattern = format!("%{pattern}%");
+                "SELECT id FROM messages \
+                    WHERE Datetime LIKE ?1 \
+                    OR ECUID LIKE ?1 \
+                    OR VERS LIKE ?1 \
+                    OR SID LIKE ?1 \
+                    OR MCNT LIKE ?1 \
+                    OR TMS LIKE ?1 \
+                    OR EID LIKE ?1 \
+                    OR APID LIKE ?1 \
+                    OR CTID LIKE ?1 \
+                    OR MSTP LIKE ?1 \
+                    OR PAYLOAD LIKE ?1"
+            }
+            (SearchType::Regex, Case::Sensitive) => todo!(),
+            (SearchType::Regex, Case::Insensitive) => todo!(),
+        };
+
+        let mut stmt = self.connection.prepare_cached(query).unwrap();
+        let rows = stmt.query_map([pattern], |row| row.get(0)).unwrap();
+
+        let mut ids = Vec::new();
+        for id in rows {
+            ids.push(id.unwrap());
+        }
+
+        ids
     }
 }

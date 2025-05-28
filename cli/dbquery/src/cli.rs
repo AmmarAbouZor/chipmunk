@@ -10,16 +10,41 @@ pub struct Cli {
     pub input: PathBuf,
 
     /// The database to use
-    #[command(subcommand)]
+    #[arg(short, long, required = true)]
     pub database: Database,
+
+    #[command(subcommand)]
+    pub function: Function,
+}
+
+#[derive(Debug, Clone, clap::ValueEnum)]
+pub enum Database {
+    /// Use SQLite.
+    #[value(name = "sqlite")]
+    Sqlite,
+    /// Use DuckDB.
+    #[value(name = "duckdb")]
+    DuckDb,
 }
 
 #[derive(Debug, Clone, Subcommand)]
-pub enum Database {
-    /// Use SQLite.
-    #[command(name = "sqlite")]
-    Sqlite,
-    /// Use DuckDB.
-    #[command(name = "duckdb")]
-    DuckDb,
+pub enum Function {
+    /// Run paging tests & benchmarks
+    Paging {
+        /// Scroll backwards
+        #[arg(short, long, default_value_t = false)]
+        backwards: bool,
+    },
+    /// Run search tests & benchmarks
+    Search {
+        /// Pattern to search for
+        #[arg(index = 1)]
+        pattern: String,
+        /// Perform case sensitive search
+        #[arg(short, long, default_value_t = false)]
+        sensitive: bool,
+        /// Perform Regex search
+        #[arg(short, long, default_value_t = false)]
+        regex: bool,
+    },
 }
