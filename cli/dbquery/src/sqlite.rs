@@ -1,8 +1,9 @@
-use std::path::Path;
+use std::{path::Path, sync::OnceLock};
 
 use anyhow::Context;
 use itertools::Itertools;
-use rusqlite::{Connection, OpenFlags};
+use regex::{Regex, RegexBuilder};
+use rusqlite::{Connection, OpenFlags, functions::FunctionFlags};
 
 use crate::{
     paging::Paging,
@@ -24,9 +25,96 @@ impl SqliteDb {
         )
         .context("Error while connecting to database")?;
 
-        let db = Self { connection };
+        let mut db = Self { connection };
+
+        //TODO AAZ: Added here temporally.
+        db.create_regex_funcs();
 
         Ok(db)
+    }
+
+    fn create_regex_funcs(&mut self) {
+        self.connection
+            .create_scalar_function(
+                "my_regex_s",
+                -1,
+                FunctionFlags::SQLITE_UTF8
+                    | FunctionFlags::SQLITE_DETERMINISTIC
+                    | FunctionFlags::SQLITE_DIRECTONLY
+                    | FunctionFlags::SQLITE_INNOCUOUS,
+                |ctx| {
+                    static REG: OnceLock<Regex> = OnceLock::new();
+
+                    // Dirty solution to avoid creating regex on each call.
+                    // This may be solved in production with global dictionary.
+                    // This solution can work if we call the search on the database once only.
+                    let regex = REG.get_or_init(|| {
+                        let reg: &str = ctx.get_raw(0).as_str().unwrap();
+
+                        Regex::new(reg).unwrap()
+                    });
+                    // let regex = Regex::new(reg).unwrap();
+
+                    for idx in 1..ctx.len() {
+                        let text = match ctx.get_raw(idx) {
+                            rusqlite::types::ValueRef::Text(bytes) => {
+                                std::str::from_utf8(bytes).unwrap()
+                                // This provide better performance
+                                // unsafe { std::str::from_utf8_unchecked(bytes) }
+                            }
+                            rusqlite::types::ValueRef::Null => continue,
+                            invalid => panic!("Invalid {invalid:?}"),
+                        };
+                        if regex.is_match(text) {
+                            return Ok(true);
+                        }
+                    }
+
+                    Ok(false)
+                },
+            )
+            .unwrap();
+
+        self.connection
+            .create_scalar_function(
+                "my_regex_i",
+                -1,
+                FunctionFlags::SQLITE_UTF8
+                    | FunctionFlags::SQLITE_DETERMINISTIC
+                    | FunctionFlags::SQLITE_DIRECTONLY
+                    | FunctionFlags::SQLITE_INNOCUOUS,
+                |ctx| {
+                    static REG: OnceLock<Regex> = OnceLock::new();
+
+                    // Dirty solution to avoid creating regex on each call.
+                    // This may be solved in production with global dictionary.
+                    // This solution can work if we call the search on the database once only.
+                    let regex = REG.get_or_init(|| {
+                        let reg: &str = ctx.get_raw(0).as_str().unwrap();
+                        RegexBuilder::new(reg)
+                            .case_insensitive(true)
+                            .build()
+                            .unwrap()
+                    });
+                    // let regex = Regex::new(reg).unwrap();
+
+                    for idx in 1..ctx.len() {
+                        let text = match ctx.get_raw(idx) {
+                            rusqlite::types::ValueRef::Text(bytes) => {
+                                std::str::from_utf8(bytes).unwrap()
+                            }
+                            rusqlite::types::ValueRef::Null => continue,
+                            invalid => panic!("Invalid {invalid:?}"),
+                        };
+                        if regex.is_match(text) {
+                            return Ok(true);
+                        }
+                    }
+
+                    Ok(false)
+                },
+            )
+            .unwrap();
     }
 }
 
@@ -95,8 +183,14 @@ impl Search for SqliteDb {
                     OR MSTP LIKE ?1 \
                     OR PAYLOAD LIKE ?1"
             }
-            (SearchType::Regex, Case::Sensitive) => todo!(),
-            (SearchType::Regex, Case::Insensitive) => todo!(),
+            (SearchType::Regex, Case::Sensitive) => {
+                "SELECT id FROM messages \
+                    WHERE my_regex_s(?1, Datetime, ECUID, VERS, SID, MCNT, TMS, EID, APID, CTID, MSTP, PAYLOAD)"
+            }
+            (SearchType::Regex, Case::Insensitive) => {
+                "SELECT id FROM messages \
+                    WHERE my_regex_i(?1, Datetime, ECUID, VERS, SID, MCNT, TMS, EID, APID, CTID, MSTP, PAYLOAD)"
+            }
         };
 
         let mut stmt = self.connection.prepare_cached(query).unwrap();

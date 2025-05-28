@@ -519,6 +519,7 @@ dependencies = [
  "clap",
  "duckdb",
  "itertools",
+ "regex",
  "rusqlite",
 ]
 
