@@ -101,6 +101,9 @@ impl MsgSqliteWriter {
         }
 
         drop(stm);
+        //TODO AAZ: Check the impact of using optimize.
+        //Normally this should be used before closing the connection on files.
+        // tx.execute("PRAGMA optimzie;", []).unwrap();
 
         tx.commit()?;
 
