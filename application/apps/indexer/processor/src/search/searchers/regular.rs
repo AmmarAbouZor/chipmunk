@@ -91,6 +91,7 @@ impl SearchState for RegularSearchState {
 
 fn collect(row: u64, line: &str, state: &mut RegularSearchState) {
     let mut line_indexes = stypes::FilterMatch::new(row, vec![]);
+    //TODO AAZ: matched_rows isn't needed
     let mut matched_rows = vec![];
     for (index, re) in state.matchers.iter().enumerate() {
         if re.is_match(line) {
@@ -115,8 +116,17 @@ pub fn search(
     cancallation: CancellationToken,
 ) -> SearchResults {
     base_searcher.search_state.results = Results::new();
+    // println!("------------------------ search regular");
+    let timer = std::time::Instant::now();
+    let res = base_searcher.search(rows_count, read_bytes, cancallation, collect)?;
+    let elapsed = timer.elapsed();
+    println!("-------------------------------------------------");
+    println!("Search took {} microseconds", elapsed.as_micros());
+    println!("Search took {} milliseconds", elapsed.as_millis());
+    // println!("{search_results:?}");
+    println!("-------------------------------------------------");
     Ok((
-        base_searcher.search(rows_count, read_bytes, cancallation, collect)?,
+        res,
         base_searcher
             .search_state
             .results

@@ -25,6 +25,7 @@ thiserror.workspace = true
 tokio-util.workspace = true
 uuid = { workspace = true , features = ["serde", "v4"] }
 stypes = { path = "../stypes", features=["rustcore"] }
+backtrace.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true

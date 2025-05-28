@@ -68,6 +68,11 @@ impl<State: SearchState> BaseSearcher<State> {
     where
         F: FnMut(u64, &str, &mut State),
     {
+        // println!("------------------------------------------------------");
+        // println!("rows_count: {rows_count}");
+        // println!("read_bytes: {read_bytes}");
+        // // println!("{:?}", backtrace::Backtrace::new());
+        // println!("------------------------------------------------------");
         if read_bytes == 0 || read_bytes == self.bytes_read {
             return Ok(0..0);
         }
@@ -78,6 +83,7 @@ impl<State: SearchState> BaseSearcher<State> {
             )));
         }
         let terms = self.search_state.get_terms();
+        // dbg!(&terms);
         if terms.is_empty() {
             return Err(SearchError::Input(
                 "Cannot search without filters".to_owned(),
@@ -110,6 +116,8 @@ impl<State: SearchState> BaseSearcher<State> {
         // lnum - 1
         let lines_read = self.lines_read;
         let mut processed: usize = 0;
+        // println!("------------------------- got here");
+        //TODO AAZ: Here to continue.
         Searcher::new()
             .search_reader(
                 &matcher,

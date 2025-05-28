@@ -516,6 +516,7 @@ pub async fn run(
     let state_cancellation_token = CancellationToken::new();
     debug!("task is started");
     while let Some(msg) = rx_api.recv().await {
+        // dbg!(&msg);
         match msg {
             Api::SetSessionFile((session_file, tx_response)) => {
                 let set_session_file_res = state.session_file.init(session_file);
