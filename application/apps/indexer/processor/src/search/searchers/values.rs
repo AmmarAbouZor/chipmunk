@@ -129,6 +129,7 @@ pub fn search(
     cancallation: CancellationToken,
 ) -> OperationResults {
     base_searcher.search_state.results = Results::new();
+    // println!("-------------------------- Search values");
     Ok((
         base_searcher.search(rows_count, read_bytes, cancallation, collect)?,
         base_searcher

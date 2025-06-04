@@ -59,8 +59,15 @@ pub async fn execute_search(
         let cancel = operation_api.cancellation_token();
         let cancel_search = operation_api.cancellation_token();
         task::spawn(async move {
+            dbg!(&holder);
+            // let timer = std::time::Instant::now();
             let search_results =
                 searchers::regular::search(&mut holder, rows, read_bytes, cancel_search.clone());
+            // let elapsed = timer.elapsed();
+            // println!("-------------------------------------------------");
+            // println!("Search took {} microseconds", elapsed.as_micros());
+            // // println!("{search_results:?}");
+            // println!("-------------------------------------------------");
 
             if !cancel_search.is_cancelled()
                 && tx_result.send((holder, search_results)).await.is_ok()

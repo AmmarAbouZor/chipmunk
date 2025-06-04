@@ -2588,6 +2588,7 @@ dependencies = [
 name = "processor"
 version = "0.2.0"
 dependencies = [
+ "backtrace",
  "bincode",
  "bufread",
  "bytecount",
