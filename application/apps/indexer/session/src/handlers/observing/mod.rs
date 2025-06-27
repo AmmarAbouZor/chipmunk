@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{fmt::Write, path::PathBuf};
 
 use crate::{
     operations::{OperationAPI, OperationResult},
@@ -134,6 +134,13 @@ async fn run_producer<T: LogMessage, P: Parser<T>, S: ByteSource>(
     operation_api.processing();
     let cancel = operation_api.cancellation_token();
     let cancel_on_tail = cancel.clone();
+    // Collect the group of messages and attachments return from producer function call
+    // in an intermediate buffers to send them at once.
+    // Sending messages to state will invoke multiple operations, making sending them in bulks
+    // ends up with great performance improvements.
+    let mut msgs_buffer = String::new();
+    let mut attaches_buf = Vec::new();
+    let timer = std::time::Instant::now();
     while let Some(next) = select! {
         next_from_stream = async {
             match timeout(Duration::from_millis(FLUSH_TIMEOUT_IN_MS as u64), producer.read_next_segment()).await {
@@ -159,6 +166,8 @@ async fn run_producer<T: LogMessage, P: Parser<T>, S: ByteSource>(
     } {
         match next {
             Next::Items(items) => {
+                msgs_buffer.clear();
+                let mut done = false;
                 // Iterating over references is more efficient than using `drain(..)`, even though
                 // we clone the attachments below. With ownership, `mem_copy()` would still be called
                 // to move the item into the attachment vector. Cloning avoids the overhead of
@@ -166,26 +175,20 @@ async fn run_producer<T: LogMessage, P: Parser<T>, S: ByteSource>(
                 for (_, item) in items {
                     match item {
                         MessageStreamItem::Item(ParseYield::Message(item)) => {
-                            state
-                                .write_session_file(source_id, format!("{item}\n"))
-                                .await?;
+                            _ = writeln!(&mut msgs_buffer, "{item}");
                         }
                         MessageStreamItem::Item(ParseYield::MessageAndAttachment((
                             item,
                             attachment,
                         ))) => {
-                            state
-                                .write_session_file(source_id, format!("{item}\n"))
-                                .await?;
-                            state.add_attachment(attachment.to_owned())?;
+                            _ = writeln!(&mut msgs_buffer, "{item}");
+                            attaches_buf.push(attachment.to_owned());
                         }
                         MessageStreamItem::Item(ParseYield::Attachment(attachment)) => {
-                            state.add_attachment(attachment.to_owned())?;
+                            attaches_buf.push(attachment.to_owned());
                         }
                         MessageStreamItem::Done => {
-                            trace!("observe, message stream is done");
-                            state.flush_session_file().await?;
-                            state.file_read().await?;
+                            done = true;
                         }
                         // MessageStreamItem::FileRead => {
                         //     state.file_read().await?;
@@ -200,6 +203,34 @@ async fn run_producer<T: LogMessage, P: Parser<T>, S: ByteSource>(
                             trace!("observe: empty message");
                         }
                     }
+                }
+
+                if !msgs_buffer.is_empty() {
+                    // Creates an owned string from current buffer then clean the current. This operation
+                    // produces one mem_copy command for the needed bytes only while preserving
+                    // the capacity of the intermediate buffer.
+                    // Rust doesn't provide safe way to move bytes between strings without replacing
+                    // the whole string, forcing us to allocate the full capacity of the buffer on each
+                    // iteration (which could backfire in the internal buffer gets too long in one of the
+                    // iterations).
+                    let msgs = String::from(&msgs_buffer);
+                    state.write_session_file(source_id, msgs).await?;
+                }
+                for attachment in attaches_buf.drain(..) {
+                    state.add_attachment(attachment)?;
+                }
+
+                if done {
+                    let elapsed = timer.elapsed();
+                    println!("-------------------------------------------------------------------");
+                    println!("-------------------------------------------------------------------");
+                    println!("It took {} secnods", elapsed.as_millis());
+                    println!("-------------------------------------------------------------------");
+                    println!("-------------------------------------------------------------------");
+
+                    trace!("observe, message stream is done");
+                    state.flush_session_file().await?;
+                    state.file_read().await?;
                 }
             }
             Next::Timeout => {
