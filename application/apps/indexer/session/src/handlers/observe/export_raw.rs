@@ -1,7 +1,8 @@
 use crate::operations::{OperationAPI, OperationResult};
 use definitions::{ByteSource, LogRecordOutput, LogRecordsBuffer, Parser};
 use log::debug;
-use processor::producer::MessageProducer;
+use processor::producer::{FetchResult, MessageProducer, ProcessResult};
+use stypes::{NativeError, NativeErrorKind, Severity};
 
 use std::{
     fs::File,
@@ -99,18 +100,41 @@ impl LogRecordsBuffer for ExportLogsBuffer {
 
 pub async fn run_producer<P: Parser, S: ByteSource, B: LogRecordsBuffer>(
     operation_api: OperationAPI,
-    mut producer: MessageProducer<'_, P, S, B>,
+    mut producer: MessageProducer<P, S>,
+    logs_buffer: &mut B,
 ) -> OperationResult<bool> {
     operation_api.processing();
     let cancel = operation_api.cancellation_token();
-    while let Some(..) = select! {
-        next_from_stream = producer.read_next_segment() => next_from_stream,
+    while let Some(fetch_res) = select! {
+        next_from_stream = producer.fetch_data() => Some(next_from_stream),
         _ = async {
             cancel.cancelled().await;
             debug!("exporting operation has been cancelled");
         } => None,
     } {
-        // Do nothing. Writing happens on MessageProducer level
+        match fetch_res {
+            FetchResult::FetchInfo {
+                newly_loaded_bytes: _,
+                available_bytes,
+                skipped_bytes: _,
+            } => {
+                if available_bytes == 0 {
+                    break;
+                }
+                match producer.process_data(logs_buffer) {
+                    ProcessResult::Parsed(_) => {
+                        logs_buffer.flush().await?;
+                    }
+                    ProcessResult::Error(parser_error) => {
+                        return Err(parser_error.into());
+                    }
+                    ProcessResult::None => {
+                        // No data available => Try to load more.
+                    }
+                }
+            }
+            FetchResult::Error(source_error) => return Err(source_error.into()),
+        }
     }
     debug!("exporting is done");
     Ok(Some(!cancel.is_cancelled()))

@@ -22,15 +22,26 @@ pub async fn observing(
             let (desciptor, source, parser) = components.setup(&options)?;
             let mut logs_buffer =
                 session::LogsBuffer::new(state.clone(), state.add_source(desciptor).await?);
-            let producer = MessageProducer::new(parser, source, &mut logs_buffer);
-            Ok(session::run_producer(operation_api, state, producer, None, None).await?)
+            let producer = MessageProducer::new(parser, source);
+            Ok(
+                session::run_producer(operation_api, state, producer, &mut logs_buffer, None, None)
+                    .await?,
+            )
         }
         SessionAction::Source => {
             let (desciptor, source, parser) = components.setup(&options)?;
             let mut logs_buffer =
                 session::LogsBuffer::new(state.clone(), state.add_source(desciptor).await?);
-            let producer = MessageProducer::new(parser, source, &mut logs_buffer);
-            Ok(session::run_producer(operation_api, state, producer, None, rx_sde).await?)
+            let producer = MessageProducer::new(parser, source);
+            Ok(session::run_producer(
+                operation_api,
+                state,
+                producer,
+                &mut logs_buffer,
+                None,
+                rx_sde,
+            )
+            .await?)
         }
         SessionAction::Files(files) => {
             // Replacement of concat feature
@@ -39,9 +50,16 @@ pub async fn observing(
                     components.setup(&options.inherit(SessionAction::File(file.to_owned())))?;
                 let mut logs_buffer =
                     session::LogsBuffer::new(state.clone(), state.add_source(desciptor).await?);
-                let producer = MessageProducer::new(parser, source, &mut logs_buffer);
-                session::run_producer(operation_api.clone(), state.clone(), producer, None, None)
-                    .await?;
+                let producer = MessageProducer::new(parser, source);
+                session::run_producer(
+                    operation_api.clone(),
+                    state.clone(),
+                    producer,
+                    &mut logs_buffer,
+                    None,
+                    None,
+                )
+                .await?;
             }
             Ok(Some(()))
         }
@@ -54,8 +72,8 @@ pub async fn observing(
                 }
                 let (_, source, parser) =
                     components.setup(&options.inherit(SessionAction::File(file.to_owned())))?;
-                let producer = MessageProducer::new(parser, source, &mut logs_buffer);
-                export_raw::run_producer(operation_api.clone(), producer).await?;
+                let producer = MessageProducer::new(parser, source);
+                export_raw::run_producer(operation_api.clone(), producer, &mut logs_buffer).await?;
             }
             Ok(Some(()))
         }

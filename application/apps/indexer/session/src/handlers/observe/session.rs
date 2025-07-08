@@ -4,10 +4,12 @@ use crate::{
     tail,
 };
 use definitions::*;
-use log::{trace, warn};
-use processor::producer::{MessageProducer, MessageStreamItem, sde::*};
-use std::time::Instant;
-use tokio::{select, sync::mpsc::Receiver};
+use log::warn;
+use processor::producer::{FetchResult, MessageProducer, ProcessResult, sde::*};
+use std::time::{Duration, Instant};
+use tokio::{select, sync::mpsc::Receiver, time::timeout};
+
+pub const FLUSH_TIMEOUT_IN_MS: u64 = 500;
 
 /// A buffer for accumulating log data before writing to a session file.
 ///
@@ -114,29 +116,18 @@ impl LogRecordsBuffer for LogsBuffer {
     }
 }
 
+#[derive(Debug)]
 enum Next {
-    Parsed(usize, MessageStreamItem),
-    Waiting,
+    FetchResult(FetchResult),
     Sde(SdeMsg),
+    Timeout,
 }
-
-/// **********************************************************************************************
-/// For Ammar:
-///
-/// Currently, the use of select! requires careful handling of cancel-safety in all methods involved.
-/// Instead of solving the rather complex problem of full cancel-safety, I suggest localizing the issue:
-///
-/// * Remove all non-essential functionality from the select! block and use it only to listen for
-///   messages.
-/// * File reading can be performed in a loop that regularly checks the state of the SDE queue.
-/// * Once the end of the file is reached, we can begin listening with select! for changes in the data
-///   source, updates from SDE, and termination signals.
-/// **********************************************************************************************
 
 pub async fn run_producer<P: Parser, S: ByteSource, B: LogRecordsBuffer>(
     operation_api: OperationAPI,
     state: SessionStateAPI,
-    mut producer: MessageProducer<'_, P, S, B>,
+    mut producer: MessageProducer<P, S>,
+    logs_buffer: &mut B,
     mut rx_tail: Option<Receiver<Result<(), tail::Error>>>,
     mut rx_sde: Option<SdeReceiver>,
 ) -> OperationResult<()> {
@@ -149,9 +140,10 @@ pub async fn run_producer<P: Parser, S: ByteSource, B: LogRecordsBuffer>(
 
     while let Some(next) = select! {
         next_from_stream = async {
-            producer.read_next_segment().await
-                .map(|(consumed, results)|Next::Parsed(consumed, results))
-                .or_else(|| Some(Next::Waiting))
+            match timeout(Duration::from_millis(FLUSH_TIMEOUT_IN_MS), producer.fetch_data()).await {
+                Ok(res) => Some(Next::FetchResult(res)),
+                Err(_) => Some(Next::Timeout),
+            }
         } => next_from_stream,
         Some(sde_msg) = async {
             if let Some(rx_sde) = rx_sde.as_mut() {
@@ -163,42 +155,79 @@ pub async fn run_producer<P: Parser, S: ByteSource, B: LogRecordsBuffer>(
         _ = cancel.cancelled() => None,
     } {
         match next {
-            Next::Parsed(_consumed, results) => match results {
-                MessageStreamItem::Parsed(results) => {
-                    //Just continue
+            Next::FetchResult(FetchResult::FetchInfo {
+                newly_loaded_bytes: _,
+                available_bytes,
+                skipped_bytes: _,
+            }) => {
+                // No available_bytes => Wait for tailing.
+                if available_bytes == 0 {
+                    if !state.is_closing() {
+                        state.flush_session_file().await?;
+                    }
+                    if let Some(mut rx_tail) = rx_tail.take() {
+                        if select! {
+                            next_from_stream = rx_tail.recv() => {
+                                if let Some(result) = next_from_stream {
+                                    result.is_err()
+                                } else {
+                                    true
+                                }
+                            },
+                            _ = cancel_on_tail.cancelled() => true,
+                        } {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                    continue;
                 }
-                MessageStreamItem::Done => {
-                    state.flush_session_file().await?;
-                    state.file_read().await?;
-                    warn!(
-                        "observe, message stream is done in {} ms",
-                        started.elapsed().as_millis()
-                    );
+                // Run process data
+                match producer.process_data(logs_buffer) {
+                    ProcessResult::Parsed(parse_operation_infos) => {
+                        // TODO: Report results to users
+
+                        if parse_operation_infos.parsed_msgs > 0 {
+                            if let Err(err) = logs_buffer.flush().await {
+                                log::error!("Fail to write data into writer: {err}");
+                            }
+                        }
+                    }
+                    ProcessResult::None => {
+                        // No data available => Try to load more & tailing.
+                    }
+                    //TODO: Errors must be visible to users.
+                    ProcessResult::Error(parser_error) => match parser_error {
+                        ParserError::Unrecoverable(err) => {
+                            eprintln!("Ending session due to unrecoverable error {err}");
+                            break;
+                        }
+                        ParserError::Parse(err) => {
+                            eprintln!("Paring Error: {err}");
+                            // Don't stop on parse errors.
+                            // However, we need to show them to users.
+                            continue;
+                        }
+                        ParserError::Incomplete => {
+                            // Load more bytes the next round.
+                            continue;
+                        }
+                        ParserError::Eof => {
+                            break;
+                        }
+                    },
                 }
-                MessageStreamItem::Skipped => {
-                    trace!("observe: skipped a message");
-                }
-            },
-            Next::Waiting => {
+            }
+            Next::Timeout => {
                 if !state.is_closing() {
                     state.flush_session_file().await?;
                 }
-                if let Some(mut rx_tail) = rx_tail.take() {
-                    if select! {
-                        next_from_stream = rx_tail.recv() => {
-                            if let Some(result) = next_from_stream {
-                                result.is_err()
-                            } else {
-                                true
-                            }
-                        },
-                        _ = cancel_on_tail.cancelled() => true,
-                    } {
-                        break;
-                    }
-                } else {
-                    break;
-                }
+            }
+            Next::FetchResult(FetchResult::Error(err)) => {
+                // TODO: Also here we need to report errors to users.
+                eprintln!("Ending session due to source error {err}");
+                break;
             }
             Next::Sde((msg, tx_response)) => {
                 let sde_res = producer.sde_income(msg).await.map_err(|e| e.to_string());
@@ -208,6 +237,14 @@ pub async fn run_producer<P: Parser, S: ByteSource, B: LogRecordsBuffer>(
             }
         }
     }
+
+    state.flush_session_file().await?;
+    state.file_read().await?;
+    warn!(
+        "observe, message stream is done in {} ms",
+        started.elapsed().as_millis()
+    );
+
     debug!("listen done");
     Ok(None)
 }

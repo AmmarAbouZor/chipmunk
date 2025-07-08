@@ -2,267 +2,63 @@
 mod tests;
 
 pub mod sde;
+mod types;
+
+pub use types::{ParseOperationInfos, ProcessResult};
 
 use definitions::*;
 use log::warn;
 
-/// **********************************************************************************************
-/// For Ammar:
-///
-/// It makes sense to revisit the design of MessageProducer with the following considerations:
-/// Remove the inner loop, which no longer appears necessary after all recent refactorings.
-/// This would allow read_next_segment to simply read an available data fragment without
-/// performing iteration, which should be handled at a higher level.
-///
-/// Introduce an enum ProducerAction to group the logic by intent. Currently, in several
-/// error-handling branches, we effectively duplicate code. Representing the different "actions"
-/// explicitly would help make the logic inside read_next_segment clearer. For example:
-///
-/// enum ProducerAction {
-///     Return(..),       // Return results
-///     DropAndLoad(),    // Attempt to load more data
-///     ...
-/// }
-/// **********************************************************************************************
-
 /// Number of bytes to skip on initial parse errors before terminating the session.
 const INITIAL_PARSE_ERROR_LIMIT: usize = 1024;
 
-#[derive(Debug)]
-pub enum MessageStreamItem {
-    Parsed(ParseOperationResult),
-    Skipped,
-    Done,
-}
+/// Number of bytes to drop when trying to recover from parser errors.
+const DROP_STEP: usize = 1;
 
 #[derive(Debug)]
-pub struct MessageProducer<'a, P, D, B>
+pub struct MessageProducer<P, D>
 where
     P: Parser,
     D: ByteSource,
-    B: LogRecordsBuffer,
 {
     byte_source: D,
     parser: P,
     filter: Option<SourceFilter>,
     last_seen_ts: Option<u64>,
-    total_loaded: usize,
-    total_skipped: usize,
-    done: bool,
-    logs_buffer: &'a mut B,
+    /// Bytes count on last load call.
+    last_loaded_bytes: usize,
     total_produced_items: usize,
 }
 
-impl<'a, P: Parser, D: ByteSource, B: LogRecordsBuffer> MessageProducer<'a, P, D, B> {
+#[derive(Debug)]
+pub enum FetchResult {
+    FetchInfo {
+        newly_loaded_bytes: usize,
+        available_bytes: usize,
+        skipped_bytes: usize,
+    },
+    Error(SourceError),
+}
+
+impl<P: Parser, D: ByteSource> MessageProducer<P, D> {
     /// create a new producer by plugging into a byte source
-    pub fn new(parser: P, source: D, logs_buffer: &'a mut B) -> Self {
+    pub fn new(parser: P, source: D) -> Self {
         MessageProducer {
             byte_source: source,
             parser,
             filter: None,
             last_seen_ts: None,
-            total_loaded: 0,
-            total_skipped: 0,
-            done: false,
-            logs_buffer,
+            last_loaded_bytes: 0,
             total_produced_items: 0,
         }
     }
 
-    /// Loads the next segment of bytes, parses them, and returns the items in a mutable vector.
-    /// The caller can choose whether to consume the items or not.
+    /// Loads the next segment of bytes. This method must be cancel safe.
     ///
     /// # Cancel Safety:
     /// This function is cancel safe as long [`ByteSource::load()`] method on used byte source is
     /// safe as well.
-    ///
-    /// # Return:
-    /// Return a mutable reference for the newly parsed items when there are more data available,
-    /// otherwise it returns None when there are no more data available in the source.
-    pub async fn read_next_segment(&mut self) -> Option<(usize, MessageStreamItem)> {
-        // ### Cancel Safety ###:
-        // This function is cancel safe because:
-        // * there is no await calls or any function causing yielding between filling the internal
-        //   buffer and returning it.
-        // * Byte source will keep the loaded data in its internal buffer ensuring there
-        //   is no data loss when cancelling happen between load calls.
-
-        if self.done {
-            debug!("done...no next segment");
-            return None;
-        }
-        let (_newly_loaded, mut available, mut skipped_bytes) =
-            self.load().await.unwrap_or((0, 0, 0));
-
-        // 1. buffer loaded? if not, fill buffer with frame data
-        // 2. try to parse message from buffer
-        // 3a. if message, pop it of the buffer and deliver
-        // 3b. else reload into buffer and goto 2
-        loop {
-            let current_slice = self.byte_source.current_slice();
-            // `available` and `current_slice.len()` represent the same value but can go out of sync.
-            // The general unit tests for byte-sources catches this behavior but this assertion is
-            // for new sources to ensure that they are included in the general tests for sources.
-            debug_assert_eq!(
-                available,
-                current_slice.len(),
-                "available bytes must always match current slice length. 
-                Note: Ensure the current byte source is covered with the general unit tests"
-            );
-
-            debug!(
-                "current slice: (len: {}) (total {})",
-                current_slice.len(),
-                self.total_loaded
-            );
-            if available == 0 {
-                trace!("No more bytes available from source");
-                self.done = true;
-                if let Err(err) = self.logs_buffer.flush().await {
-                    error!("Fail to write data into writer: {err}");
-                }
-                return Some((0, MessageStreamItem::Done));
-            }
-            // we can call consume only after all parse results are collected because of its
-            // reference to self.
-            let mut total_consumed = 0;
-            let mut messages_received = 0;
-
-            match self
-                .parser
-                .parse(current_slice, self.last_seen_ts)
-                .map(|iter| {
-                    iter.for_each(|item|  {match item {
-                        (consumed, Some(m)) => {
-                            let total_used_bytes = consumed + skipped_bytes;
-                            // Reset skipped bytes since it had been counted here.
-                            skipped_bytes = 0;
-                            debug!(
-                            "Extracted a valid message, consumed {} bytes (total used {} bytes)",
-                            consumed, total_used_bytes
-                        );
-                            total_consumed += consumed;
-                        messages_received += 1;
-
-                        self.logs_buffer.append(m)
-                        }
-                        (consumed, None) => {
-                            total_consumed += consumed;
-                            trace!("None, consumed {} bytes", consumed);
-                        }
-                    }})
-                }) {
-                Ok(()) => {
-                    self.total_produced_items += messages_received;
-                    if messages_received > 0 {
-                        if let Err(err) = self.logs_buffer.flush().await {
-                            error!("Fail to write data into writer: {err}");
-                        }
-                    }
-                    self.byte_source.consume(total_consumed);
-                    return Some((
-                        total_consumed,
-                        MessageStreamItem::Parsed(ParseOperationResult::new(
-                            total_consumed,
-                            messages_received,
-                        )),
-                    ));
-                }
-                Err(ParserError::Incomplete) => {
-                    trace!("not enough bytes to parse a message. Load more data");
-                    let (newly_loaded, _available_bytes, skipped) = self.load().await?;
-
-                    if newly_loaded > 0 {
-                        trace!("New bytes has been loaded, trying parsing again.");
-                        available += newly_loaded;
-                        skipped_bytes += skipped;
-                    } else {
-                        trace!("No bytes has been loaded, drop one byte if available or load");
-
-                        if !self.drop_and_load(&mut available, &mut skipped_bytes).await {
-                            trace!(
-                                "Terminating the session with no available bytes after drop and load"
-                            );
-                            let unused = skipped_bytes + available;
-                            self.done = true;
-                            if let Err(err) = self.logs_buffer.flush().await {
-                                error!("Fail to write data into writer: {err}");
-                            }
-                            return Some((unused, MessageStreamItem::Done));
-                        }
-                    }
-                }
-                Err(ParserError::Eof) => {
-                    trace!(
-                        "EOF reached...no more messages (skipped_bytes={})",
-                        skipped_bytes
-                    );
-                    self.done = true;
-                    return None;
-                }
-                Err(ParserError::Parse(s)) => {
-                    // TODO: This is temporary solution. We need to inform the user each time we
-                    // hit the `INITIAL_PARSE_ERROR_LIMIT` and not break the session.
-                    // We may need the new item `MessageStreamItem::Skipped(bytes_count)`
-                    //
-                    // Return early when initial parse calls fail after consuming one megabyte.
-                    // This can happen when provided bytes aren't suitable for the select parser.
-                    // In such case we close the session directly to avoid having unresponsive
-                    // state while parse is calling on each skipped byte in the source.
-                    if !self.did_produce_items() && skipped_bytes > INITIAL_PARSE_ERROR_LIMIT {
-                        warn!(
-                            "Aborting session due to failing initial parse call with the error: {s}"
-                        );
-                        let unused = skipped_bytes + available;
-                        self.done = true;
-                        if let Err(err) = self.logs_buffer.flush().await {
-                            error!("Fail to write data into writer: {err}");
-                        }
-                        return Some((unused, MessageStreamItem::Done));
-                    }
-
-                    trace!("No parse possible, skip one byte and retry. Error: {s}");
-                    if self.drop_and_load(&mut available, &mut skipped_bytes).await {
-                        continue;
-                    } else {
-                        trace!(
-                            "Terminating the session with no available bytes after drop and load"
-                        );
-                        let unused = skipped_bytes + available;
-                        self.done = true;
-                        if let Err(err) = self.logs_buffer.flush().await {
-                            error!("Fail to write data into writer: {err}");
-                        }
-                        return Some((unused, MessageStreamItem::Done));
-                    }
-                }
-                Err(ParserError::Unrecoverable(err)) => {
-                    //TODO: Errors like this must be visible to users.
-                    // Current producer loop swallows the errors after logging them,
-                    // returning that the session is ended after encountering such errors.
-                    error!("Parsing failed: Error {err}");
-                    eprintln!("Parsing failed: Error: {err}");
-                    self.done = true;
-                    if let Err(err) = self.logs_buffer.flush().await {
-                        error!("Fail to write data into writer: {err}");
-                    }
-                    return Some((0, MessageStreamItem::Done));
-                }
-                Err(ParserError::Native(err)) => {
-                    todo!("Not Implemented")
-                }
-            }
-        }
-    }
-
-    /// Calls load on the underline byte source filling it with more bytes.
-    /// Returning information about the state of the byte counts, Or None if
-    /// the reload call fails.
-    ///
-    /// # Return:
-    ///
-    /// Option<(newly_loaded_bytes, available_bytes, skipped_bytes)>
-    async fn load(&mut self) -> Option<(usize, usize, usize)> {
+    pub async fn fetch_data(&mut self) -> FetchResult {
         match self.byte_source.load(self.filter.as_ref()).await {
             Ok(Some(ReloadInfo {
                 newly_loaded_bytes,
@@ -270,76 +66,151 @@ impl<'a, P: Parser, D: ByteSource, B: LogRecordsBuffer> MessageProducer<'a, P, D
                 skipped_bytes,
                 last_known_ts,
             })) => {
-                self.total_loaded += newly_loaded_bytes;
-                self.total_skipped += skipped_bytes;
+                self.last_loaded_bytes = newly_loaded_bytes;
                 if let Some(ts) = last_known_ts {
                     self.last_seen_ts = Some(ts);
                 }
+
                 trace!(
-                    "did a do_reload, skipped {} bytes, loaded {} more bytes (total loaded and skipped: {})",
-                    skipped_bytes,
-                    newly_loaded_bytes,
-                    self.total_loaded + self.total_skipped
+                    "Load succeeded, skipped {skipped_bytes} bytes, loaded {newly_loaded_bytes}\
+                        more bytes. total available: {available_bytes}",
                 );
-                Some((newly_loaded_bytes, available_bytes, skipped_bytes))
+
+                FetchResult::FetchInfo {
+                    newly_loaded_bytes,
+                    available_bytes,
+                    skipped_bytes,
+                }
             }
             Ok(None) => {
                 trace!("byte_source.reload result was None");
-                if self.byte_source.current_slice().is_empty() {
-                    trace!("byte_source.current_slice() is empty. Returning None");
 
-                    None
-                } else {
-                    trace!("byte_source still have some bytes. Returning them");
-
-                    Some((0, self.byte_source.len(), 0))
+                FetchResult::FetchInfo {
+                    newly_loaded_bytes: 0,
+                    available_bytes: self.byte_source.len(),
+                    skipped_bytes: 0,
                 }
             }
             Err(e) => {
                 // In error case we don't need to consider the available bytes.
                 warn!("Error reloading content: {}", e);
-                None
+                FetchResult::Error(e)
             }
         }
     }
 
-    /// Drops one byte from the available bytes and loads more bytes if no more bytes are
-    /// available.
+    /// Processes the current available data returning the process results
     ///
-    /// # Note:
-    /// This function is intended for internal use in producer loop only.
-    ///
-    /// # Return:
-    /// `true` when there are available bytes to be parsed, otherwise it'll return `false`
-    /// indicating that the session should be terminated.
-    async fn drop_and_load(&mut self, available: &mut usize, skipped_bytes: &mut usize) -> bool {
-        if *available > 0 {
-            trace!("Dropping one byte from loaded ones.");
-            const DROP_STEP: usize = 1;
-            *available -= DROP_STEP;
-            *skipped_bytes += DROP_STEP;
-            self.byte_source.consume(DROP_STEP);
+    /// * `logs_buffer`: Buffer to append the parsed logs into.
+    pub fn process_data<B: LogRecordsBuffer>(&mut self, logs_buffer: &mut B) -> ProcessResult {
+        let mut dropped_bytes = 0;
+        loop {
+            // *** Dropped Bytes Check ***
+            // TODO: This is temporary solution. We need to inform the user each time we
+            // hit the `INITIAL_PARSE_ERROR_LIMIT` and not break the session.
+            // We may need the new item `ProcessResult::Dropped(bytes_count)`
+            //
+            // Return early when initial parse calls fail after consuming one megabyte.
+            // This can happen when provided bytes aren't suitable for the select parser.
+            // In such case we close the session directly to avoid having unresponsive
+            // state while parse is calling on each skipped byte in the source.
+            if !self.did_produce_items() && dropped_bytes > INITIAL_PARSE_ERROR_LIMIT {
+                let err_msg = "Aborting session due to failing initial parse call";
+                warn!("{err_msg}");
 
-            // we still have bytes -> call parse on the remaining bytes without loading.
-            if *available > 0 {
-                return true;
+                return ProcessResult::Error(ParserError::Unrecoverable(err_msg.into()));
             }
-        }
 
-        // Load more bytes.
-        trace!("No more bytes are available. Loading more bytes");
-        match self.load().await {
-            Some((newly_loaded, _available_bytes, skipped)) => {
-                *available += newly_loaded;
-                *skipped_bytes += skipped;
+            // *** Parsing ***
+            let current_slice = self.byte_source.current_slice();
+            debug!("current slice: (len: {})", current_slice.len());
 
-                newly_loaded > 0
+            if current_slice.is_empty() {
+                trace!("No more bytes available from source");
+
+                return ProcessResult::None;
             }
-            None => false,
+
+            let mut total_consumed = 0;
+            let mut parsed_msgs = 0;
+            let mut skipped_msgs = 0;
+
+            // we can call consume only after all parse results are collected because of its
+            // reference to self.
+            match self
+                .parser
+                .parse(current_slice, self.last_seen_ts)
+                .map(|iter| {
+                    iter.for_each(|item| match item {
+                        (consumed, Some(m)) => {
+                            trace!("Extracted a valid message, consumed {consumed} bytes");
+                            total_consumed += consumed;
+                            parsed_msgs += 1;
+
+                            logs_buffer.append(m)
+                        }
+                        (consumed, None) => {
+                            trace!("Skippped Message, consumed {} bytes", consumed);
+                            total_consumed += consumed;
+                            skipped_msgs += 1;
+                        }
+                    })
+                }) {
+                Ok(()) => {
+                    self.total_produced_items += parsed_msgs;
+                    self.byte_source.consume(total_consumed);
+                    let parse_info =
+                        ParseOperationInfos::new(total_consumed, parsed_msgs, skipped_msgs);
+                    return ProcessResult::Parsed(parse_info);
+                }
+                Err(err @ ParserError::Incomplete) => {
+                    debug!("not enough bytes to parse a message. Load more data");
+
+                    // Start dropping bytes if last load call didn't provided
+                    // any new bytes.
+                    // In this case the parser is returning an incomplete error
+                    // while the byte source is full with bytes.
+                    if self.last_loaded_bytes == 0 {
+                        trace!("No parse possible, skip one byte and retry. Error: {err}");
+
+                        self.byte_source.consume(DROP_STEP);
+                        dropped_bytes += DROP_STEP;
+                        // Retry to parse after drop.
+                        if !self.byte_source.is_empty() {
+                            continue;
+                        }
+                    } else {
+                        return ProcessResult::Error(err);
+                    }
+                }
+                Err(err @ ParserError::Parse(..)) => {
+                    debug!("No parse possible, skip one byte and retry. Error: {err}");
+
+                    self.byte_source.consume(DROP_STEP);
+                    dropped_bytes += DROP_STEP;
+                    // Retry to parse after drop.
+                    if !self.byte_source.is_empty() {
+                        continue;
+                    }
+
+                    return ProcessResult::Error(err);
+                }
+                Err(err @ ParserError::Eof) => {
+                    debug!("End of File reached");
+
+                    return ProcessResult::Error(err);
+                }
+                Err(err @ ParserError::Unrecoverable(..)) => {
+                    error!("Parsing failed: Error {err}");
+
+                    return ProcessResult::Error(err);
+                }
+            }
         }
     }
 
     /// Checks if the producer have already produced any parsed items in the current session.
+    #[inline]
     fn did_produce_items(&self) -> bool {
         self.total_produced_items > 0
     }

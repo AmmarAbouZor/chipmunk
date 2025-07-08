@@ -168,9 +168,6 @@ impl defs::Parser for PluginsParser {
                     )));
                 }
             }
-            Err(defs::ParserError::Native(err)) => {
-                todo!("Not implemented")
-            }
         }
 
         res

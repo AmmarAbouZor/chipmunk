@@ -15,13 +15,15 @@ pub enum ParserError {
     Incomplete,
     #[error("End of file reached")]
     Eof,
-    #[error("{0}")]
-    Native(NativeError),
 }
 
-impl From<NativeError> for ParserError {
-    fn from(err: NativeError) -> Self {
-        ParserError::Native(err)
+impl From<ParserError> for NativeError {
+    fn from(err: ParserError) -> Self {
+        NativeError {
+            severity: stypes::Severity::ERROR,
+            kind: stypes::NativeErrorKind::ComputationFailed,
+            message: Some(format!("Parser error: {err}")),
+        }
     }
 }
 
@@ -119,26 +121,4 @@ where
 
         Ok(Box::new(iter))
     }
-}
-
-//TODO AAZ: This could be removed?
-pub trait Collector<T> {
-    fn register_message(&mut self, offset: usize, msg: &T);
-    fn attachment_indexes(&self) -> Vec<Attachment>;
-}
-
-pub trait LineFormat {
-    fn format_line(&self) -> String;
-}
-
-pub enum ByteRepresentation {
-    Owned(Vec<u8>),
-    Range((usize, usize)),
-}
-
-#[derive(Debug)]
-pub enum MessageStreamItem {
-    Parsed(ParseOperationResult),
-    Skipped,
-    Done,
 }

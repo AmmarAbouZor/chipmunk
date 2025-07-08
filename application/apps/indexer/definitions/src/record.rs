@@ -34,27 +34,6 @@ impl Attachment {
     }
 }
 
-/// Represents the result of a single parsing step.
-///
-/// This structure is used to report the outcome of log parsing from `MessageProducer`
-/// to its controlling logic.
-#[derive(Debug)]
-pub struct ParseOperationResult {
-    /// Number of bytes successfully consumed from the input buffer.
-    pub consumed: usize,
-    /// Number of messages that were parsed and forwarded.
-    pub count: usize,
-}
-
-impl ParseOperationResult {
-    pub fn new(consumed: usize, count: usize) -> Self {
-        Self { consumed, count }
-    }
-    pub fn parsed_any_msg(&self) -> bool {
-        self.count > 0
-    }
-}
-
 /// Defines the shape of data that a parser can emit to a `MessageProducer`.
 ///
 /// # Design Philosophy
