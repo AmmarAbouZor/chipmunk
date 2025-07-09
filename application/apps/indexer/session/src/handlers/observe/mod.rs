@@ -4,11 +4,16 @@ mod session;
 use crate::{
     operations::{OperationAPI, OperationResult},
     state::SessionStateAPI,
+    tail,
 };
 use components::Components;
 use processor::producer::{MessageProducer, sde::*};
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 use stypes::{SessionAction, SessionSetup};
+use tokio::{
+    join,
+    sync::mpsc::{Receiver, Sender, channel},
+};
 
 pub async fn observing(
     operation_api: OperationAPI,
@@ -18,15 +23,8 @@ pub async fn observing(
     rx_sde: Option<SdeReceiver>,
 ) -> OperationResult<()> {
     match &options.origin {
-        SessionAction::File(..) => {
-            let (desciptor, source, parser) = components.setup(&options)?;
-            let mut logs_buffer =
-                session::LogsBuffer::new(state.clone(), state.add_source(desciptor).await?);
-            let producer = MessageProducer::new(parser, source);
-            Ok(
-                session::run_producer(operation_api, state, producer, &mut logs_buffer, None, None)
-                    .await?,
-            )
+        SessionAction::File(file) => {
+            observe_file(file, operation_api, state, &options, &components).await
         }
         SessionAction::Source => {
             let (desciptor, source, parser) = components.setup(&options)?;
@@ -46,18 +44,13 @@ pub async fn observing(
         SessionAction::Files(files) => {
             // Replacement of concat feature
             for file in files {
-                let (desciptor, source, parser) =
-                    components.setup(&options.inherit(SessionAction::File(file.to_owned())))?;
-                let mut logs_buffer =
-                    session::LogsBuffer::new(state.clone(), state.add_source(desciptor).await?);
-                let producer = MessageProducer::new(parser, source);
-                session::run_producer(
+                let session_option = options.inherit(SessionAction::File(file.to_owned()));
+                observe_file(
+                    file,
                     operation_api.clone(),
                     state.clone(),
-                    producer,
-                    &mut logs_buffer,
-                    None,
-                    None,
+                    &session_option,
+                    &components,
                 )
                 .await?;
             }
@@ -78,4 +71,35 @@ pub async fn observing(
             Ok(Some(()))
         }
     }
+}
+
+async fn observe_file(
+    file_path: &Path,
+    operation_api: OperationAPI,
+    state: SessionStateAPI,
+    options: &SessionSetup,
+    components: &Arc<Components>,
+) -> OperationResult<()> {
+    let (desciptor, source, parser) = components.setup(options)?;
+    let mut logs_buffer =
+        session::LogsBuffer::new(state.clone(), state.add_source(desciptor).await?);
+    let producer = MessageProducer::new(parser, source);
+
+    let (tx_tail, rx_tail): (
+        Sender<Result<(), tail::Error>>,
+        Receiver<Result<(), tail::Error>>,
+    ) = channel(1);
+
+    let (_, res) = join!(
+        tail::track(file_path, tx_tail, operation_api.cancellation_token()),
+        session::run_producer(
+            operation_api,
+            state,
+            producer,
+            &mut logs_buffer,
+            Some(rx_tail),
+            None // Files doesn't support SDE
+        ),
+    );
+    res
 }

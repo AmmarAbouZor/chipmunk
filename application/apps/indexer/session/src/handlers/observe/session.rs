@@ -162,6 +162,10 @@ pub async fn run_producer<P: Parser, S: ByteSource, B: LogRecordsBuffer>(
             }) => {
                 // No available_bytes => Wait for tailing.
                 if available_bytes == 0 {
+                    warn!(
+                        "observe, message stream has entered tailing in {} ms",
+                        started.elapsed().as_millis()
+                    );
                     if !state.is_closing() {
                         state.flush_session_file().await?;
                     }
