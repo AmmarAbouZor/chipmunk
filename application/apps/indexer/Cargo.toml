@@ -15,7 +15,7 @@ members = [
     "session",
     "sources",
     "stypes"
-]
+, "ai"]
 
 [workspace.dependencies]
 log = "0.4"

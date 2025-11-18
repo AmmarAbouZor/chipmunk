@@ -69,6 +69,7 @@ pub struct SessionState {
     pub cancelling_operations: HashMap<Uuid, bool>,
     pub status: Status,
     pub debug: bool,
+    pub ai_sender: tokio::sync::mpsc::Sender<AiRequest>,
 }
 
 impl SessionState {
@@ -88,6 +89,10 @@ impl SessionState {
             cancelling_operations: HashMap::new(),
             debug: false,
         }
+    }
+
+    async fn send_prompt(&mut self, msg: String) {
+        self.ai_sender.send(AiRequest::Prompt(msg)).await
     }
 
     fn handle_grab(
@@ -531,6 +536,7 @@ pub async fn run(
                     stypes::NativeError::channel("Failed to response to Api::SetSessionFile")
                 })?;
             }
+            Api::PromptIncome(msg) => state.send_prompt(msg).await,
             Api::GetSessionFile(tx_response) => {
                 tx_response
                     .send(state.session_file.filename())

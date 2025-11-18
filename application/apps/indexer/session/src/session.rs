@@ -78,6 +78,7 @@ impl Session {
             };
             debug!("Session is started");
             let tx_callback_events_state = tx_callback_events.clone();
+
             join!(
                 async {
                     destroying.cancelled().await;
@@ -98,6 +99,11 @@ impl Session {
                 },
                 async {
                     join!(
+                        ai_api::run(
+                            state_api.clone(),
+                            tracker_api.clone(),
+                            tx_callback_events.clone(),
+                        ),
                         operations::run(
                             rx_operations,
                             state_api.clone(),
