@@ -212,20 +212,7 @@ impl Session {
                     operation_id,
                     phase,
                 } => {
-                    if self
-                        .shared
-                        .observe
-                        .update_operation(operation_id, phase)
-                        .consumed()
-                    {
-                        return;
-                    }
-                    if self
-                        .shared
-                        .search
-                        .update_operation(operation_id, phase)
-                        .consumed()
-                    {
+                    if self.shared.update_operation(operation_id, phase).consumed() {
                         return;
                     }
                     // Potential components which keep track for operations can go here.

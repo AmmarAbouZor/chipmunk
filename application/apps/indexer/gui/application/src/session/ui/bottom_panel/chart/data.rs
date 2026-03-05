@@ -95,7 +95,7 @@ impl ChartsData {
         {
             self.series.push(HistogramSeries {
                 filter_idx,
-                name: temp_search.value.clone(),
+                name: temp_search.filter().value.clone(),
                 color: TEMP_SEARCH_COLORS.bg,
             });
         }
