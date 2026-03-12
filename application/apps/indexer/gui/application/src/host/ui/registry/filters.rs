@@ -55,6 +55,17 @@ pub struct FilterRegistry {
     value_usage: FxHashMap<Uuid, FxHashSet<Uuid>>,
 }
 
+/// Outcome of editing one session's view of a registry definition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegistryEditOutcome {
+    /// The definition does not exist, or the session no longer references it.
+    NotFound,
+    /// The existing definition was updated in place and the definition id is unchanged.
+    EditedInPlace,
+    /// The definition was shared, so the edit created a new id for this session only.
+    Duplicated(Uuid),
+}
+
 impl FilterRegistry {
     /// Returns the immutable filter definition used by UI rendering and sync.
     pub fn get_filter(&self, id: &Uuid) -> Option<&FilterDefinition> {
@@ -184,6 +195,73 @@ impl FilterRegistry {
         Some(search_value_id)
     }
 
+    /// Updates one session's filter definition in place when possible, or
+    /// duplicates it and rebinds only that session when the definition is shared.
+    pub fn edit_filter_for_session(
+        &mut self,
+        filter_id: Uuid,
+        session_id: Uuid,
+        next_filter: SearchFilter,
+    ) -> RegistryEditOutcome {
+        if !self.is_filter_applied(&filter_id, &session_id) {
+            log::warn!(
+                "edit_filter_for_session called for unapplied filter {filter_id}\
+                in session {session_id}"
+            );
+            return RegistryEditOutcome::NotFound;
+        }
+
+        if self.filter_usage_count(&filter_id) <= 1 {
+            let Some(filter_def) = self.filters.get_mut(&filter_id) else {
+                return RegistryEditOutcome::NotFound;
+            };
+            filter_def.filter = next_filter;
+            filter_def.search_value_eligibility = validate_search_value_filter(&filter_def.filter);
+            return RegistryEditOutcome::EditedInPlace;
+        }
+
+        let filter_def = FilterDefinition::new(next_filter);
+        let next_id = filter_def.id;
+        self.add_filter(filter_def);
+        self.unapply_filter_from_session(filter_id, session_id);
+        self.apply_filter_to_session(next_id, session_id);
+
+        RegistryEditOutcome::Duplicated(next_id)
+    }
+
+    /// Updates one session's search-value definition in place when possible, or
+    /// duplicates it and rebinds only that session when the definition is shared.
+    pub fn edit_search_value_for_session(
+        &mut self,
+        value_id: Uuid,
+        session_id: Uuid,
+        next_filter: SearchFilter,
+    ) -> RegistryEditOutcome {
+        if !self.is_search_value_applied(&value_id, &session_id) {
+            log::warn!(
+                "edit_search_value_for_session called for unapplied search value {value_id}\
+                in session {session_id}"
+            );
+            return RegistryEditOutcome::NotFound;
+        }
+
+        if self.search_value_usage_count(&value_id) <= 1 {
+            let Some(value_def) = self.search_values.get_mut(&value_id) else {
+                return RegistryEditOutcome::NotFound;
+            };
+            value_def.filter = next_filter;
+            return RegistryEditOutcome::EditedInPlace;
+        }
+
+        let value_def = SearchValueDefinition::new(next_filter);
+        let next_id = value_def.id;
+        self.add_search_value(value_def);
+        self.unapply_search_value_from_session(value_id, session_id);
+        self.apply_search_value_to_session(next_id, session_id);
+
+        RegistryEditOutcome::Duplicated(next_id)
+    }
+
     /// Convert a search value definition into a filter definition.
     ///
     /// The source search value is removed globally only when it is not needed
@@ -298,6 +376,256 @@ mod tests {
 
         assert!(result.is_none());
         assert!(registry.get_filter(&filter_id).is_some());
+    }
+
+    #[test]
+    fn edit_filter_updates_single_session() {
+        let mut registry = FilterRegistry::default();
+        let session_id = Uuid::new_v4();
+        let filter_def = FilterDefinition::new(SearchFilter::plain("cpu=(\\d+)"));
+        let filter_id = filter_def.id;
+        registry.add_filter(filter_def);
+        registry.apply_filter_to_session(filter_id, session_id);
+
+        let result = registry.edit_filter_for_session(
+            filter_id,
+            session_id,
+            SearchFilter::plain("cpu=(\\d+)")
+                .regex(true)
+                .ignore_case(true),
+        );
+
+        let edited = registry
+            .get_filter(&filter_id)
+            .expect("definition should stay in place");
+        assert_eq!(result, RegistryEditOutcome::EditedInPlace);
+        assert!(edited.filter.is_regex());
+        assert!(edited.filter.is_ignore_case());
+        assert!(edited.search_value_eligibility.is_eligible());
+    }
+
+    #[test]
+    fn edit_text_keeps_flags() {
+        let mut registry = FilterRegistry::default();
+        let session_id = Uuid::new_v4();
+        let filter_def = FilterDefinition::new(
+            SearchFilter::plain("cpu=(\\d+)")
+                .regex(true)
+                .ignore_case(true)
+                .word(true),
+        );
+        let filter_id = filter_def.id;
+        registry.add_filter(filter_def);
+        registry.apply_filter_to_session(filter_id, session_id);
+
+        let result = registry.edit_filter_for_session(
+            filter_id,
+            session_id,
+            SearchFilter::plain("mem=(\\d+)")
+                .regex(true)
+                .ignore_case(true)
+                .word(true),
+        );
+
+        let edited = registry
+            .get_filter(&filter_id)
+            .expect("definition should stay in place");
+        assert_eq!(result, RegistryEditOutcome::EditedInPlace);
+        assert_eq!(edited.filter.value, "mem=(\\d+)");
+        assert!(edited.filter.is_regex());
+        assert!(edited.filter.is_ignore_case());
+        assert!(edited.filter.is_word());
+    }
+
+    #[test]
+    fn edit_filter_duplicates_shared_definition() {
+        let mut registry = FilterRegistry::default();
+        let session_id = Uuid::new_v4();
+        let other_session_id = Uuid::new_v4();
+        let filter_def = FilterDefinition::new(SearchFilter::plain("cpu=(\\d+)"));
+        let filter_id = filter_def.id;
+        registry.add_filter(filter_def);
+        registry.apply_filter_to_session(filter_id, session_id);
+        registry.apply_filter_to_session(filter_id, other_session_id);
+
+        let result = registry.edit_filter_for_session(
+            filter_id,
+            session_id,
+            SearchFilter::plain("cpu=(\\d+)")
+                .regex(true)
+                .ignore_case(true),
+        );
+        let RegistryEditOutcome::Duplicated(next_id) = result else {
+            panic!("shared edit should duplicate");
+        };
+
+        assert_ne!(next_id, filter_id);
+        assert!(
+            !registry
+                .get_filter(&filter_id)
+                .expect("original shared definition should stay")
+                .filter
+                .is_regex()
+        );
+        assert!(
+            registry
+                .get_filter(&next_id)
+                .expect("duplicate definition should exist")
+                .filter
+                .is_regex()
+        );
+        assert!(registry.is_filter_applied(&filter_id, &other_session_id));
+        assert!(!registry.is_filter_applied(&filter_id, &session_id));
+        assert!(registry.is_filter_applied(&next_id, &session_id));
+    }
+
+    #[test]
+    fn edit_text_duplicates_shared() {
+        let mut registry = FilterRegistry::default();
+        let session_id = Uuid::new_v4();
+        let other_session_id = Uuid::new_v4();
+        let filter_def = FilterDefinition::new(
+            SearchFilter::plain("cpu=(\\d+)")
+                .regex(true)
+                .ignore_case(true),
+        );
+        let filter_id = filter_def.id;
+        registry.add_filter(filter_def);
+        registry.apply_filter_to_session(filter_id, session_id);
+        registry.apply_filter_to_session(filter_id, other_session_id);
+
+        let result = registry.edit_filter_for_session(
+            filter_id,
+            session_id,
+            SearchFilter::plain("mem=(\\d+)")
+                .regex(true)
+                .ignore_case(true),
+        );
+        let RegistryEditOutcome::Duplicated(next_id) = result else {
+            panic!("shared edit should duplicate");
+        };
+
+        assert_eq!(
+            registry
+                .get_filter(&filter_id)
+                .expect("shared source should stay")
+                .filter
+                .value,
+            "cpu=(\\d+)"
+        );
+        assert_eq!(
+            registry
+                .get_filter(&next_id)
+                .expect("session duplicate should exist")
+                .filter
+                .value,
+            "mem=(\\d+)"
+        );
+    }
+
+    #[test]
+    fn edit_filter_reports_not_found() {
+        let mut registry = FilterRegistry::default();
+
+        let result = registry.edit_filter_for_session(
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            SearchFilter::plain("cpu=(\\d+)"),
+        );
+
+        assert_eq!(result, RegistryEditOutcome::NotFound);
+    }
+
+    #[test]
+    fn edit_search_value_updates_single_session() {
+        let mut registry = FilterRegistry::default();
+        let session_id = Uuid::new_v4();
+        let value_def = SearchValueDefinition::new(
+            SearchFilter::plain("cpu=(\\d+)")
+                .regex(true)
+                .ignore_case(true),
+        );
+        let value_id = value_def.id;
+        registry.add_search_value(value_def);
+        registry.apply_search_value_to_session(value_id, session_id);
+
+        let result = registry.edit_search_value_for_session(
+            value_id,
+            session_id,
+            SearchFilter::plain("mem=(\\d+)")
+                .regex(true)
+                .ignore_case(true),
+        );
+
+        let edited = registry
+            .get_search_value(&value_id)
+            .expect("definition should stay in place");
+        assert_eq!(result, RegistryEditOutcome::EditedInPlace);
+        assert_eq!(edited.filter.value, "mem=(\\d+)");
+        assert!(edited.filter.is_regex());
+        assert!(edited.filter.is_ignore_case());
+    }
+
+    #[test]
+    fn edit_search_value_duplicates_shared_definition() {
+        let mut registry = FilterRegistry::default();
+        let session_id = Uuid::new_v4();
+        let other_session_id = Uuid::new_v4();
+        let value_def = SearchValueDefinition::new(
+            SearchFilter::plain("cpu=(\\d+)")
+                .regex(true)
+                .ignore_case(true),
+        );
+        let value_id = value_def.id;
+        registry.add_search_value(value_def);
+        registry.apply_search_value_to_session(value_id, session_id);
+        registry.apply_search_value_to_session(value_id, other_session_id);
+
+        let result = registry.edit_search_value_for_session(
+            value_id,
+            session_id,
+            SearchFilter::plain("mem=(\\d+)")
+                .regex(true)
+                .ignore_case(true),
+        );
+        let RegistryEditOutcome::Duplicated(next_id) = result else {
+            panic!("shared edit should duplicate");
+        };
+
+        assert_eq!(
+            registry
+                .get_search_value(&value_id)
+                .expect("original shared definition should stay")
+                .filter
+                .value,
+            "cpu=(\\d+)"
+        );
+        assert_eq!(
+            registry
+                .get_search_value(&next_id)
+                .expect("duplicate definition should exist")
+                .filter
+                .value,
+            "mem=(\\d+)"
+        );
+        assert!(registry.is_search_value_applied(&value_id, &other_session_id));
+        assert!(!registry.is_search_value_applied(&value_id, &session_id));
+        assert!(registry.is_search_value_applied(&next_id, &session_id));
+    }
+
+    #[test]
+    fn edit_search_value_reports_not_found() {
+        let mut registry = FilterRegistry::default();
+
+        let result = registry.edit_search_value_for_session(
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            SearchFilter::plain("cpu=(\\d+)")
+                .regex(true)
+                .ignore_case(true),
+        );
+
+        assert_eq!(result, RegistryEditOutcome::NotFound);
     }
 
     #[test]

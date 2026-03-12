@@ -285,6 +285,30 @@ impl FiltersState {
         }
     }
 
+    /// Swaps the registry definition behind an applied filter while keeping the
+    /// session-local row state intact.
+    ///
+    /// Returns:
+    /// - `true` when the current session still has a matching applied row.
+    /// - `false` when the session no longer has an applied filter row for
+    ///   `current_id`
+    pub fn rebind_filter(&mut self, current_id: &Uuid, next_id: Uuid) -> bool {
+        if *current_id == next_id {
+            return self.is_filter_applied(current_id);
+        }
+
+        if let Some(item) = self
+            .filter_entries
+            .iter_mut()
+            .find(|item| item.id == *current_id)
+        {
+            item.id = next_id;
+            return true;
+        }
+
+        false
+    }
+
     /// Adds a search value to the session in the enabled state.
     pub fn apply_search_value(&mut self, registry: &mut FilterRegistry, id: Uuid) {
         self.set_search_value_entry(registry, id, true);
@@ -306,6 +330,30 @@ impl FiltersState {
             self.search_value_entries.retain(|item| item.id != *id);
             registry.unapply_search_value_from_session(*id, self.session_id);
         }
+    }
+
+    /// Swaps the registry definition behind an applied search value while
+    /// keeping the session-local row state intact.
+    ///
+    /// Returns:
+    /// - `true` when the current session still has a matching applied row.
+    /// - `false` when the session no longer has an applied search-value row for
+    ///   `current_id`
+    pub fn rebind_search_value(&mut self, current_id: &Uuid, next_id: Uuid) -> bool {
+        if *current_id == next_id {
+            return self.is_search_value_applied(current_id);
+        }
+
+        if let Some(item) = self
+            .search_value_entries
+            .iter_mut()
+            .find(|item| item.id == *current_id)
+        {
+            item.id = next_id;
+            return true;
+        }
+
+        false
     }
 }
 
@@ -605,5 +653,56 @@ mod tests {
             .expect("converted filter should exist");
         assert!(!entry.enabled);
         assert_eq!(entry.colors, colors::FILTER_HIGHLIGHT_COLORS[1].clone());
+    }
+
+    #[test]
+    fn rebind_filter_preserves_state() {
+        let mut state = new_state();
+        let mut registry = FilterRegistry::default();
+        let first_id = add_plain_filter_definition(&mut registry, "first");
+        let second_id = add_plain_filter_definition(&mut registry, "second");
+        let replacement_id = add_plain_filter_definition(&mut registry, "replacement");
+
+        state.apply_filter(&mut registry, first_id);
+        state.apply_filter_with_state(&mut registry, second_id, false);
+        let original_colors = state
+            .filter_entries
+            .iter()
+            .find(|item| item.id == second_id)
+            .expect("second filter should exist")
+            .colors
+            .clone();
+
+        assert!(state.rebind_filter(&second_id, replacement_id));
+
+        assert_eq!(state.filter_entries[0].id, first_id);
+        assert_eq!(state.filter_entries[1].id, replacement_id);
+        assert!(!state.filter_entries[1].enabled);
+        assert_eq!(state.filter_entries[1].colors, original_colors);
+    }
+
+    #[test]
+    fn rebind_search_value_preserves_state() {
+        let mut state = new_state();
+        let mut registry = FilterRegistry::default();
+        let first_id = add_search_value_definition(&mut registry, "first=(\\d+)");
+        let second_id = add_search_value_definition(&mut registry, "second=(\\d+)");
+        let replacement_id = add_search_value_definition(&mut registry, "replacement=(\\d+)");
+
+        state.apply_search_value(&mut registry, first_id);
+        state.apply_search_value_with_state(&mut registry, second_id, false);
+        let original_color = state
+            .search_value_entries
+            .iter()
+            .find(|item| item.id == second_id)
+            .expect("second search value should exist")
+            .color;
+
+        assert!(state.rebind_search_value(&second_id, replacement_id));
+
+        assert_eq!(state.search_value_entries[0].id, first_id);
+        assert_eq!(state.search_value_entries[1].id, replacement_id);
+        assert!(!state.search_value_entries[1].enabled);
+        assert_eq!(state.search_value_entries[1].color, original_color);
     }
 }

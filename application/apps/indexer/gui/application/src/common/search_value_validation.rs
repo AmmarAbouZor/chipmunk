@@ -349,4 +349,30 @@ mod tests {
             SearchValueEligibility::Eligible
         ));
     }
+
+    #[test]
+    fn eligible_has_no_reason() {
+        let filter = SearchFilter::plain("cpu=(\\d+)")
+            .regex(true)
+            .ignore_case(true);
+
+        let result = validate_search_value_filter(&filter);
+
+        assert!(matches!(result, SearchValueEligibility::Eligible));
+    }
+
+    #[test]
+    fn invalid_exposes_reason() {
+        let filter = SearchFilter::plain("cpu=\\d+")
+            .regex(true)
+            .ignore_case(true);
+
+        let result = validate_search_value_filter(&filter);
+
+        assert!(matches!(
+            result,
+            SearchValueEligibility::Ineligible { reason }
+            if reason == "Regex must include at least one capture group."
+        ));
+    }
 }

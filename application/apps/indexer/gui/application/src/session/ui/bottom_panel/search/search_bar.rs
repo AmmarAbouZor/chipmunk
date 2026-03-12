@@ -104,12 +104,22 @@ impl SearchBar {
             |ui| {
                 self.render_filter_status(shared, ui);
 
-                ui.toggle_value(&mut self.is_regex, "Regex")
-                    .on_hover_text("Use Regex Expression");
-                ui.toggle_value(&mut self.is_word, "Word")
-                    .on_hover_text("Match Whole Word");
-                ui.toggle_value(&mut self.match_case, "Case")
-                    .on_hover_text("Match Case");
+                ui.toggle_value(
+                    &mut self.is_regex,
+                    RichText::new(icons::regular::ASTERISK).size(14.0),
+                )
+                .on_hover_text("Use Regular Expression");
+                ui.toggle_value(
+                    &mut self.is_word,
+                    RichText::new(icons::regular::TEXT_T).size(14.0),
+                )
+                .on_hover_text("Match Whole Word");
+
+                ui.toggle_value(
+                    &mut self.match_case,
+                    RichText::new(icons::regular::TEXT_AA).size(14.0),
+                )
+                .on_hover_text("Match Case");
 
                 ui.allocate_ui_with_layout(
                     ui.available_size(),
@@ -197,19 +207,15 @@ impl SearchBar {
 
                         // Add to search values.
                         {
-                            let eligibility = shared
-                                .filters
-                                .active_temp_search
-                                .as_ref()
-                                .map(|temp| temp.eligibility());
-
-                            let disabled_reason = match eligibility {
-                                Some(SearchValueEligibility::Eligible) => None,
-                                Some(SearchValueEligibility::Ineligible { reason }) => {
-                                    Some(reason.as_str())
-                                }
-                                None => Some("Search value is not eligible."),
-                            };
+                            let disabled_reason =
+                                shared.filters.active_temp_search.as_ref().and_then(|temp| {
+                                    match temp.eligibility() {
+                                        SearchValueEligibility::Eligible => None,
+                                        SearchValueEligibility::Ineligible { reason } => {
+                                            Some(reason.as_str())
+                                        }
+                                    }
+                                });
 
                             let mut add_btn = ui
                                 .add_enabled(
@@ -219,14 +225,12 @@ impl SearchBar {
                                 .on_hover_text("Add to Search Values");
 
                             if let Some(reason) = disabled_reason {
-                                add_btn = {
-                                    add_btn.on_disabled_hover_ui(|ui| {
-                                        ui.set_max_width(ui.spacing().tooltip_width);
+                                add_btn = add_btn.on_disabled_hover_ui(|ui| {
+                                    ui.set_max_width(ui.spacing().tooltip_width);
 
-                                        let text = format!("Search Value: {reason}");
-                                        ui.label(text);
-                                    })
-                                }
+                                    let text = format!("Search Value: {reason}");
+                                    ui.label(text);
+                                })
                             }
 
                             if add_btn.clicked() {
