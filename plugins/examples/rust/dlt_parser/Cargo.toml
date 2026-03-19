@@ -7,7 +7,7 @@ description = "An example of a Chipmunk parser that replicate the dlt parser tha
 
 [dependencies]
 plugins_api = {path = "../../../plugins_api", features = ["parser"] }
-dlt-core = { version = "0.20", features = ["fibex"] }
+dlt-core = { version = "0.20.0", features = ["fibex"] }
 chrono = "0.4"
 chrono-tz = "0.10"
 
