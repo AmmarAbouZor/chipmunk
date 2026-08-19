@@ -1,7 +1,4 @@
-extern crate criterion;
-extern crate processor;
-
-use criterion::{Criterion, *};
+use criterion::{Criterion, criterion_group, criterion_main};
 use processor::map::SearchMap;
 
 fn scaled_benchmark(c: &mut Criterion) {
