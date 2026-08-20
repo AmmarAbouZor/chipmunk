@@ -27,6 +27,8 @@ pub enum GrabError {
     NotInitialize,
     #[error("Unsupported file type: {0}")]
     Unsupported(String),
+    #[error("Invalid UTF-8 content at byte {offset}")]
+    InvalidEncoding { offset: u64 },
 }
 
 impl From<GrabError> for stypes::NativeError {
@@ -66,6 +68,11 @@ impl From<GrabError> for stypes::NativeError {
                 severity: stypes::Severity::ERROR,
                 kind: stypes::NativeErrorKind::ComputationFailed,
                 message: Some(format!("File type is not supported: {s}")),
+            },
+            GrabError::InvalidEncoding { offset } => stypes::NativeError {
+                severity: stypes::Severity::ERROR,
+                kind: stypes::NativeErrorKind::ComputationFailed,
+                message: Some(format!("Invalid UTF-8 content at byte {offset}")),
             },
         }
     }

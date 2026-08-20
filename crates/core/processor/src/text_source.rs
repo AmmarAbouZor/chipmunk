@@ -17,15 +17,34 @@ use tokio_util::sync::CancellationToken;
 const BIN_READER_CAPACITY: usize = 1024 * 32;
 const BIN_MIN_BUFFER_SPACE: usize = 10 * 1024;
 
+/// Longest byte sequence a single character can be encoded in.
+const MAX_UTF8_CHAR_LEN: usize = 4;
+
 #[derive(Debug)]
 pub struct TextFileSource {
     path: PathBuf,
+    /// Requests UTF-8 verification of the file content while the initial index is built.
+    /// Verification covers the initial pass only: content read while tailing may end with a
+    /// partially written character and must not invalidate an already published session.
+    verify_utf8: bool,
 }
 
 impl TextFileSource {
+    /// Takes the file content as it is. Suitable for content which is valid UTF-8 by
+    /// construction, like generated session files.
     pub fn new(p: &Path) -> Self {
         Self {
             path: PathBuf::from(p),
+            verify_utf8: false,
+        }
+    }
+
+    /// Rejects the file with [`GrabError::InvalidEncoding`] while building the initial index if
+    /// its content is not valid UTF-8. Suitable for external files of unknown encoding.
+    pub fn verifying_utf8(p: &Path) -> Self {
+        Self {
+            path: PathBuf::from(p),
+            verify_utf8: true,
         }
     }
 }
@@ -119,6 +138,7 @@ impl TextFileSource {
                 self.path.to_string_lossy()
             )));
         }
+        let mut validator = (self.verify_utf8 && base.is_none()).then(Utf8Validator::default);
         let (mut slots, (mut byte_offset, mut log_msg_cnt)) = if let Some(base) = base {
             let last = if let Some(last) = base.slots.last() {
                 (last.bytes.end() + 1, last.lines.end() + 1)
@@ -179,6 +199,9 @@ impl TextFileSource {
                     } else {
                         slot
                     };
+                    if let Some(validator) = validator.as_mut() {
+                        validator.check(&content[..consumed as usize], byte_offset)?;
+                    }
                     if nl == 0 {
                         pending = Some(slot);
                     } else {
@@ -322,6 +345,61 @@ impl TextFileSource {
                 .as_bytes(),
             )
             .map_err(|e| GrabError::IoOperation(format!("Could not write into file {e:?}")))?;
+        Ok(())
+    }
+}
+
+/// Verifies that a file is valid UTF-8 while it is read chunk by chunk.
+///
+/// A chunk can end in the middle of a character, so an incomplete trailing sequence is carried
+/// over and verified together with the beginning of the next chunk. A carry left over when the
+/// file ends is a truncated character of a file which is still being written, and counts as valid.
+#[derive(Debug, Default)]
+struct Utf8Validator {
+    /// Beginning of a character which was cut off at the end of the previous chunk.
+    carry: Vec<u8>,
+    /// Absolute file position of the first carried byte.
+    carry_offset: u64,
+}
+
+impl Utf8Validator {
+    /// Verifies `chunk`, which starts at absolute file position `offset`. Chunks must be passed
+    /// in file order and must cover the file without gaps.
+    fn check(&mut self, chunk: &[u8], offset: u64) -> Result<(), GrabError> {
+        let mut start = 0;
+        if !self.carry.is_empty() {
+            let head_len = (MAX_UTF8_CHAR_LEN - self.carry.len()).min(chunk.len());
+            let mut head = std::mem::take(&mut self.carry);
+            let carried = head.len();
+            head.extend_from_slice(&chunk[..head_len]);
+            match std::str::from_utf8(&head) {
+                Ok(_) => start = head_len,
+                // The carried character is complete; verification resumes right after it.
+                Err(err) if err.valid_up_to() > 0 => start = err.valid_up_to() - carried,
+                // The chunk was too short to complete the character.
+                Err(err) if err.error_len().is_none() => {
+                    self.carry = head;
+                    return Ok(());
+                }
+                Err(_) => {
+                    return Err(GrabError::InvalidEncoding {
+                        offset: self.carry_offset,
+                    });
+                }
+            }
+        }
+        let Err(err) = std::str::from_utf8(&chunk[start..]) else {
+            return Ok(());
+        };
+        let error_offset = offset + (start + err.valid_up_to()) as u64;
+        if err.error_len().is_some() {
+            return Err(GrabError::InvalidEncoding {
+                offset: error_offset,
+            });
+        }
+        self.carry
+            .extend_from_slice(&chunk[start + err.valid_up_to()..]);
+        self.carry_offset = error_offset;
         Ok(())
     }
 }

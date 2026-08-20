@@ -1,8 +1,11 @@
 use super::values::graph::CandlePoint;
 use crate::{
     state::{
-        NestedMatch, indexes::IndexedNavigation, observed::Observed,
-        session_file::SessionFileOrigin, values::ValuesError,
+        NestedMatch,
+        indexes::IndexedNavigation,
+        observed::Observed,
+        session_file::{LinkOutcome, SessionFileOrigin},
+        values::ValuesError,
     },
     tracker::OperationTrackerAPI,
 };
@@ -30,10 +33,14 @@ use uuid::Uuid;
 
 #[derive(Debug)]
 pub enum Api {
-    SetSessionFile(
+    /// Creates a session file, which the parsed logs are written into.
+    CreateSessionFile(oneshot::Sender<Result<(), stypes::NativeError>>),
+    /// Uses the given file as session file directly, if its content can be read as UTF-8.
+    LinkSessionFile(
         (
-            Option<PathBuf>,
-            oneshot::Sender<Result<(), stypes::NativeError>>,
+            PathBuf,
+            u16,
+            oneshot::Sender<Result<LinkOutcome, stypes::NativeError>>,
         ),
     ),
     GetSessionFile(oneshot::Sender<Result<PathBuf, stypes::NativeError>>),
@@ -205,7 +212,8 @@ impl Display for Api {
             f,
             "{}",
             match self {
-                Self::SetSessionFile(_) => "SetSessionFile",
+                Self::CreateSessionFile(_) => "CreateSessionFile",
+                Self::LinkSessionFile(_) => "LinkSessionFile",
                 Self::GetSessionFile(_) => "GetSessionFile",
                 Self::WriteSessionFile(_) => "WriteSessionFile",
                 Self::FlushSessionFile(_) => "FlushSessionFile",
@@ -416,12 +424,21 @@ impl SessionStateAPI {
             .await
     }
 
-    pub async fn set_session_file(
-        &self,
-        filename: Option<PathBuf>,
-    ) -> Result<(), stypes::NativeError> {
+    pub async fn create_session_file(&self) -> Result<(), stypes::NativeError> {
         let (tx, rx) = oneshot::channel();
-        self.exec_operation(Api::SetSessionFile((filename, tx)), rx)
+        self.exec_operation(Api::CreateSessionFile(tx), rx).await?
+    }
+
+    /// Uses the file as session file directly, indexing its content in place. Content which
+    /// cannot be read as UTF-8 isn't linked and has to be delivered through a session file
+    /// created with [`SessionStateAPI::create_session_file`] instead.
+    pub async fn link_session_file(
+        &self,
+        filename: PathBuf,
+        source_id: u16,
+    ) -> Result<LinkOutcome, stypes::NativeError> {
+        let (tx, rx) = oneshot::channel();
+        self.exec_operation(Api::LinkSessionFile((filename, source_id, tx)), rx)
             .await?
     }
 

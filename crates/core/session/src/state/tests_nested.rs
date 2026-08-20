@@ -5,7 +5,6 @@ use std::io::Write;
 use processor::search::filter::SearchFilter;
 use tempfile::NamedTempFile;
 use tokio::sync::mpsc::{channel, unbounded_channel};
-use tokio_util::sync::CancellationToken;
 
 use super::{IndexedNavigation, NestedMatch, SessionState};
 
@@ -26,11 +25,7 @@ impl Fixture {
         let (search_tx, _search_rx) = channel(1);
         let mut state = SessionState::new(callback_tx, search_tx);
         let session_path = file.path().to_path_buf();
-        state.session_file.init(Some(session_path)).unwrap();
-        state
-            .session_file
-            .update(0, CancellationToken::new())
-            .unwrap();
+        state.session_file.link(session_path, 0).unwrap();
 
         Self { state, _file: file }
     }

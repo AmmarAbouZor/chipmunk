@@ -30,10 +30,9 @@ async fn public_api_returns_named_nested_coordinates() {
     let session_path = file.path().to_path_buf();
     session
         .state
-        .set_session_file(Some(session_path))
+        .link_session_file(session_path, 0)
         .await
         .unwrap();
-    session.state.update_session(0).await.unwrap();
     let matches = [1, 3, 5]
         .into_iter()
         .map(|row| stypes::FilterMatch::new(row, vec![]))

@@ -4,9 +4,9 @@
 
 use super::source_ids::SourceIDs;
 use crate::paths;
-use log::debug;
+use log::{debug, warn};
 use processor::{
-    grabber::{Grabber, LineRange},
+    grabber::{GrabError, Grabber, LineRange},
     text_source::TextFileSource,
 };
 use std::{
@@ -49,6 +49,14 @@ impl SessionFileOrigin {
     }
 }
 
+/// Result of an attempt to use an existing file as session file directly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkOutcome {
+    Linked,
+    /// Content is not valid UTF-8 and has to be transcoded into a generated session file.
+    NotUtf8,
+}
+
 #[derive(Debug)]
 pub struct SessionFile {
     pub grabber: Option<Box<Grabber>>,
@@ -69,33 +77,69 @@ impl SessionFile {
         }
     }
 
-    pub fn init(&mut self, filename: Option<PathBuf>) -> Result<(), stypes::NativeError> {
-        if self.grabber.is_none() {
-            let filename = if let Some(filename) = filename {
-                self.filename = Some(SessionFileOrigin::Linked(filename.clone()));
-                filename
-            } else {
-                let streams = paths::get_streams_dir()?;
-                let filename = streams.join(format!("{}.{SESSION_FILE_EXTENSION}", Uuid::new_v4()));
-                debug!("Session file setup: {}", filename.to_string_lossy());
-                self.writer = Some(BufWriter::new(File::create(&filename).map_err(|e| {
-                    stypes::NativeError {
-                        severity: stypes::Severity::ERROR,
-                        kind: stypes::NativeErrorKind::Io,
-                        message: Some(format!(
-                            "Fail to create session writer for {}: {}",
-                            filename.to_string_lossy(),
-                            e
-                        )),
-                    }
-                })?));
-                self.filename = Some(SessionFileOrigin::Generated(filename.clone()));
-                filename
-            };
-            Ok(Grabber::lazy(TextFileSource::new(&filename))
-                .map(|g| self.grabber = Some(Box::new(g)))?)
-        } else {
-            Ok(())
+    /// Creates a new session file, which the parsed logs are written into.
+    pub fn init(&mut self) -> Result<(), stypes::NativeError> {
+        if self.grabber.is_some() {
+            return Ok(());
+        }
+        let streams = paths::get_streams_dir()?;
+        let filename = streams.join(format!("{}.{SESSION_FILE_EXTENSION}", Uuid::new_v4()));
+        debug!("Session file setup: {}", filename.to_string_lossy());
+        self.writer = Some(BufWriter::new(File::create(&filename).map_err(|e| {
+            stypes::NativeError {
+                severity: stypes::Severity::ERROR,
+                kind: stypes::NativeErrorKind::Io,
+                message: Some(format!(
+                    "Fail to create session writer for {}: {}",
+                    filename.to_string_lossy(),
+                    e
+                )),
+            }
+        })?));
+        self.filename = Some(SessionFileOrigin::Generated(filename.clone()));
+        Ok(Grabber::lazy(TextFileSource::new(&filename))
+            .map(|g| self.grabber = Some(Box::new(g)))?)
+    }
+
+    /// Uses an existing file as session file without copying it. The initial index is built
+    /// here, and the file is rejected with [`LinkOutcome::NotUtf8`] when its content cannot be
+    /// read as UTF-8. Nothing is linked in that case, so the caller can fall back to writing a
+    /// generated session file.
+    ///
+    /// Only a session without a session file can be linked; observing rejects further files for
+    /// a linked session beforehand.
+    pub fn link(
+        &mut self,
+        path: PathBuf,
+        source_id: u16,
+    ) -> Result<LinkOutcome, stypes::NativeError> {
+        if self.grabber.is_some() {
+            return Err(stypes::NativeError {
+                severity: stypes::Severity::ERROR,
+                kind: stypes::NativeErrorKind::Configuration,
+                message: Some(String::from(
+                    "Session file is already set up and cannot be linked to a file",
+                )),
+            });
+        }
+        let mut grabber = Grabber::lazy(TextFileSource::verifying_utf8(&path))?;
+        match grabber.create_metadata(None) {
+            Ok(indexed) => {
+                if let Some(range) = indexed {
+                    self.sources.add_range(range, source_id);
+                }
+                self.filename = Some(SessionFileOrigin::Linked(path));
+                self.grabber = Some(Box::new(grabber));
+                Ok(LinkOutcome::Linked)
+            }
+            Err(GrabError::InvalidEncoding { offset }) => {
+                warn!(
+                    "File {} isn't valid UTF-8 at byte {offset}; its content will be transcoded",
+                    path.display()
+                );
+                Ok(LinkOutcome::NotUtf8)
+            }
+            Err(err) => Err(err.into()),
         }
     }
 

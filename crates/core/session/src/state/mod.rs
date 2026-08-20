@@ -47,7 +47,7 @@ use searchers::{SearchRequest, SearchResponse};
 use stypes::{FilterMatch, GrabbedElement};
 
 pub use observed::is_raw_export_available_for;
-pub use session_file::{SessionFile, SessionFileOrigin, SessionFileState};
+pub use session_file::{LinkOutcome, SessionFile, SessionFileOrigin, SessionFileState};
 pub use values::{Values, ValuesError};
 
 /// Coordinates of a nested match across the session and its indexed projections.
@@ -358,6 +358,27 @@ impl SessionState {
         Ok(())
     }
 
+    /// Links the file as session file and publishes its indexed content, unless the content
+    /// isn't valid UTF-8 and has to be transcoded by the caller.
+    async fn handle_link_session_file(
+        &mut self,
+        filename: PathBuf,
+        source_id: u16,
+        state_cancellation_token: CancellationToken,
+        tx_callback_events: UnboundedSender<stypes::CallbackEvent>,
+    ) -> Result<LinkOutcome, stypes::NativeError> {
+        let outcome = self.session_file.link(filename, source_id)?;
+        if matches!(outcome, LinkOutcome::Linked) {
+            self.attachments
+                .set_dest_path(self.session_file.filename()?);
+            // The content is indexed while linking, so it is published here instead of on the
+            // first session update.
+            self.update_searchers(state_cancellation_token, tx_callback_events)
+                .await?;
+        }
+        Ok(outcome)
+    }
+
     async fn handle_update_session(
         &mut self,
         source_id: u16,
@@ -622,13 +643,26 @@ async fn handle_api_msg(
     state_cancellation_token: &CancellationToken,
 ) -> Result<HanldeOutpt, stypes::NativeError> {
     match msg {
-        Api::SetSessionFile((session_file, tx_response)) => {
-            let set_session_file_res = state.session_file.init(session_file);
-            if let (Ok(_), Ok(filename)) = (&set_session_file_res, state.session_file.filename()) {
+        Api::CreateSessionFile(tx_response) => {
+            let created = state.session_file.init();
+            if let (Ok(_), Ok(filename)) = (&created, state.session_file.filename()) {
                 state.attachments.set_dest_path(filename);
             }
-            tx_response.send(set_session_file_res).map_err(|_| {
-                stypes::NativeError::channel("Failed to response to Api::SetSessionFile")
+            tx_response.send(created).map_err(|_| {
+                stypes::NativeError::channel("Failed to response to Api::CreateSessionFile")
+            })?;
+        }
+        Api::LinkSessionFile((filename, source_id, tx_response)) => {
+            let linked = state
+                .handle_link_session_file(
+                    filename,
+                    source_id,
+                    state_cancellation_token.clone(),
+                    tx_callback_events.clone(),
+                )
+                .await;
+            tx_response.send(linked).map_err(|_| {
+                stypes::NativeError::channel("Failed to response to Api::LinkSessionFile")
             })?;
         }
         Api::GetSessionFile(tx_response) => {

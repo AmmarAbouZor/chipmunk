@@ -142,7 +142,7 @@ async fn run_producer<P: Parser, S: ByteSource>(
     mut rx_sde: Option<SdeReceiver>,
 ) -> OperationResult<()> {
     use log::debug;
-    state.set_session_file(None).await?;
+    state.create_session_file().await?;
     operation_api.processing();
     let mut logs_writer = LogsWriter::new(state.clone(), source_id);
     let cancel = operation_api.cancellation_token();

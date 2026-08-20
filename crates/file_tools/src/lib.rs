@@ -16,12 +16,6 @@ pub fn is_utf8_text(file_path: impl AsRef<Path>) -> Result<bool> {
     Ok(is_text)
 }
 
-/// Returns whether the beginning of the file is not valid UTF-8 text.
-pub fn is_binary(file_path: impl AsRef<Path>) -> Result<bool> {
-    let is_binary = !is_utf8_text(file_path)?;
-    Ok(is_binary)
-}
-
 fn fetch_starting_chunk(file_path: &Path) -> Result<Vec<u8>> {
     let mut buffer = Vec::new();
     File::open(file_path)?
@@ -62,49 +56,49 @@ mod test {
     }
 
     #[test]
-    fn test_is_binary_when_file_is_binary() -> Result<()> {
-        assert!(is_binary(String::from(
+    fn test_is_utf8_text_when_file_is_binary() -> Result<()> {
+        assert!(!is_utf8_text(String::from(
             "../../development/resources/attachments.dlt"
         ))?);
-        assert!(is_binary(String::from(
+        assert!(!is_utf8_text(String::from(
             "../../development/resources/someip/udp/someip.pcap"
         ))?);
-        assert!(is_binary(String::from(
+        assert!(!is_utf8_text(String::from(
             "../../development/resources/someip/udp/someip.pcapng"
         ))?);
         Ok(())
     }
 
     #[test]
-    fn test_is_binary_when_file_is_not_binary() -> Result<()> {
-        assert!(!is_binary(String::from(
+    fn test_is_utf8_text_when_file_is_text() -> Result<()> {
+        assert!(is_utf8_text(String::from(
             "../../development/resources/chinese_poem.txt"
         ))?);
-        assert!(!is_binary(String::from(
+        assert!(is_utf8_text(String::from(
             "../../development/resources/sample_utf_8.txt"
         ))?);
-        assert!(!is_binary(String::from(
+        assert!(is_utf8_text(String::from(
             "../../development/resources/someip/someip.xml"
         ))?);
         Ok(())
     }
 
     #[test]
-    fn test_is_binary_when_wrong_file_path_is_given() -> Result<()> {
-        assert!(is_binary(String::from("../../development/resources/empty.text")).is_err());
+    fn test_is_utf8_text_when_wrong_file_path_is_given() -> Result<()> {
+        assert!(is_utf8_text(String::from("../../development/resources/empty.text")).is_err());
         Ok(())
     }
 
     #[test]
-    fn test_is_binary_when_file_is_empty() -> Result<()> {
-        assert!(!is_binary(String::from(
+    fn test_is_utf8_text_when_file_is_empty() -> Result<()> {
+        assert!(is_utf8_text(String::from(
             "../../development/resources/empty.txt"
         ))?);
         Ok(())
     }
 
     #[test]
-    fn test_is_binary_when_single_byte_is_invalid_utf8() -> Result<()> {
+    fn test_is_utf8_text_when_single_byte_is_invalid_utf8() -> Result<()> {
         let path = std::env::temp_dir().join(format!(
             "chipmunk_invalid_utf8_{}_{}.bin",
             std::process::id(),
@@ -112,10 +106,10 @@ mod test {
         ));
         std::fs::write(&path, [0xff])?;
 
-        let result = is_binary(&path);
+        let result = is_utf8_text(&path);
         std::fs::remove_file(&path)?;
 
-        assert!(result?);
+        assert!(!result?);
         Ok(())
     }
 }
